@@ -1,0 +1,16 @@
+# Необязательно: удобный запуск в контейнере.
+# Локально проще запускать через `npm run dev` (см. README), но если нужен Docker:
+#   docker compose up --build
+services:
+  velora:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    volumes:
+      # Сохраняем файл БД между перезапусками контейнера.
+      - ./data:/app/data
+    environment:
+      - DB_PATH=/app/data/velora.db
+    restart: unless-stopped
