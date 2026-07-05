@@ -29,7 +29,9 @@ export const config = {
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET?.trim() || '',
   googleRedirectUri:
     process.env.GOOGLE_REDIRECT_URI?.trim() || 'http://localhost:3000/oauth/callback',
-  oauthPort: parseInt(process.env.OAUTH_PORT || '3000', 10),
+  // Порт HTTP-сервера интеграций. Облачные платформы (Railway/Render/Fly) задают
+  // порт через PORT — берём его в приоритете, иначе OAUTH_PORT, иначе 3000.
+  oauthPort: parseInt(process.env.PORT || process.env.OAUTH_PORT || '3000', 10),
   // Composio — универсальные интеграции (Gmail, Календарь, Slack, Notion... по одному ключу).
   composioApiKey: process.env.COMPOSIO_API_KEY?.trim() || '',
   composioCallbackBaseUrl:

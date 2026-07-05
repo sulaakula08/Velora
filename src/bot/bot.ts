@@ -15,7 +15,7 @@ import {
   findApp,
   SUPPORTED_APPS,
 } from '../integrations/composio/client';
-import { startConnect } from '../integrations/composio/connect';
+import { startConnect, disconnectApp } from '../integrations/composio/connect';
 
 export function createBot(): TelegramBot {
   const options: TelegramBot.ConstructorOptions = { polling: true };
@@ -40,8 +40,115 @@ export function createBot(): TelegramBot {
     });
   });
 
+  bot.on('callback_query', (query) => {
+    handleCallback(bot, query).catch((err) => {
+      logger.error({ err }, 'Необработанная ошибка в обработчике кнопки');
+    });
+  });
+
   logger.info('Telegram-бот запущен (long polling)');
   return bot;
+}
+
+// Эмодзи для кнопок подключения по slug тулкита.
+const APP_EMOJI: Record<string, string> = {
+  gmail: '📧',
+  googlecalendar: '📅',
+  slack: '💬',
+  notion: '📝',
+  github: '🐙',
+  linear: '📊',
+};
+
+/** Inline-клавиатура «подключить приложение» для всех доступных тулкитов. */
+function connectKeyboard(): TelegramBot.InlineKeyboardMarkup {
+  return {
+    inline_keyboard: availableApps().map((app) => [
+      {
+        text: `${APP_EMOJI[app.slug] ?? '🔌'} ${app.name}`,
+        callback_data: `connect:${app.slug}`,
+      },
+    ]),
+  };
+}
+
+/** Inline-клавиатура «отвязать» для уже подключённых пользователем тулкитов. */
+function disconnectKeyboard(userId: number): TelegramBot.InlineKeyboardMarkup {
+  const rows = composioRepo.listToolkits(userId).map((slug) => {
+    const name = SUPPORTED_APPS.find((a) => a.slug === slug)?.name ?? slug;
+    return [{ text: `❌ ${APP_EMOJI[slug] ?? '🔌'} ${name}`, callback_data: `disconnect:${slug}` }];
+  });
+  return { inline_keyboard: rows };
+}
+
+/** Обрабатывает нажатия inline-кнопок (пока — подключение приложений). */
+async function handleCallback(
+  bot: TelegramBot,
+  query: TelegramBot.CallbackQuery,
+): Promise<void> {
+  const data = query.data ?? '';
+  const userId = query.from.id;
+  const chatId = query.message?.chat.id;
+  const lang: Lang = usersRepo.get(userId)?.language ?? 'ru';
+
+  if (!chatId) {
+    await bot.answerCallbackQuery(query.id).catch(() => {});
+    return;
+  }
+
+  // Отвязка приложения по кнопке.
+  if (data.startsWith('disconnect:')) {
+    const app = findApp(data.slice('disconnect:'.length));
+    await bot.answerCallbackQuery(query.id).catch(() => {});
+    if (!app) {
+      await bot.sendMessage(chatId, t('connect_unknown', lang));
+      return;
+    }
+    try {
+      await disconnectApp(userId, app.slug);
+      await bot.sendMessage(chatId, t('disconnected', lang, { app: app.name }));
+    } catch (err) {
+      logger.error({ err, app: app.slug }, 'Ошибка отвязки приложения');
+      await bot.sendMessage(chatId, t('error', lang));
+    }
+    return;
+  }
+
+  if (!data.startsWith('connect:')) {
+    await bot.answerCallbackQuery(query.id).catch(() => {});
+    return;
+  }
+
+  const app = findApp(data.slice('connect:'.length));
+  if (!app) {
+    await bot.answerCallbackQuery(query.id, { text: t('connect_unknown', lang) }).catch(() => {});
+    return;
+  }
+
+  // Убираем «часики» на кнопке сразу, чтобы Telegram не показывал загрузку.
+  await bot.answerCallbackQuery(query.id).catch(() => {});
+  await bot.sendChatAction(chatId, 'typing').catch(() => {});
+
+  try {
+    const res = await startConnect(userId, app.slug);
+    if (!res) {
+      await bot.sendMessage(chatId, t('connect_unknown', lang));
+      return;
+    }
+    if ('alreadyConnected' in res) {
+      await bot.sendMessage(chatId, `${app.name}: уже подключено ✅`);
+      return;
+    }
+    // Ссылку отдаём кнопкой — пользователю достаточно нажать «Авторизоваться».
+    await bot.sendMessage(chatId, t('connect_link', lang, { app: app.name }), {
+      reply_markup: {
+        inline_keyboard: [[{ text: t('connect_open', lang, { app: app.name }), url: res.url }]],
+      },
+    });
+  } catch (err) {
+    logger.error({ err, app: app.slug }, 'Ошибка старта подключения Composio (кнопка)');
+    await bot.sendMessage(chatId, t('error', lang));
+  }
 }
 
 async function handleMessage(bot: TelegramBot, msg: TelegramBot.Message): Promise<void> {
@@ -131,9 +238,15 @@ async function handleCommand(
   const [command, arg] = text.split(/\s+/, 2);
 
   switch (command) {
-    case '/start':
-      await bot.sendMessage(chatId, t('welcome', lang));
+    case '/start': {
+      const showConnect = isComposioConfigured() && availableApps().length > 0;
+      await bot.sendMessage(
+        chatId,
+        t('welcome', lang),
+        showConnect ? { reply_markup: connectKeyboard() } : undefined,
+      );
       return;
+    }
 
     case '/help':
       await bot.sendMessage(chatId, t('help', lang));
@@ -204,8 +317,10 @@ async function handleCommand(
       }
       const choice = arg?.toLowerCase();
       if (!choice) {
-        const list = apps.map((a) => `• ${a.name} — /connect ${a.slug}`).join('\n');
-        await bot.sendMessage(chatId, t('connect_prompt', lang, { list }));
+        // Показываем кнопки — печатать команду не нужно.
+        await bot.sendMessage(chatId, t('connect_choose', lang), {
+          reply_markup: connectKeyboard(),
+        });
         return;
       }
       const app = findApp(choice);
@@ -243,13 +358,26 @@ async function handleCommand(
     }
 
     case '/disconnect': {
-      const app = arg ? findApp(arg.toLowerCase()) : undefined;
-      if (!app) {
-        await bot.sendMessage(chatId, t('connect_unknown', lang));
+      // С аргументом — отвязываем конкретное приложение (старый путь).
+      if (arg) {
+        const app = findApp(arg.toLowerCase());
+        if (!app) {
+          await bot.sendMessage(chatId, t('connect_unknown', lang));
+          return;
+        }
+        await disconnectApp(userId, app.slug);
+        await bot.sendMessage(chatId, t('disconnected', lang, { app: app.name }));
         return;
       }
-      composioRepo.remove(userId, app.slug);
-      await bot.sendMessage(chatId, t('disconnected', lang, { app: app.name }));
+      // Без аргумента — показываем кнопки подключённых приложений.
+      const toolkits = composioRepo.listToolkits(userId);
+      if (toolkits.length === 0) {
+        await bot.sendMessage(chatId, t('connections_empty', lang));
+        return;
+      }
+      await bot.sendMessage(chatId, t('disconnect_choose', lang), {
+        reply_markup: disconnectKeyboard(userId),
+      });
       return;
     }
 

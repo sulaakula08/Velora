@@ -65,6 +65,31 @@ export async function startConnect(userId: number, toolkit: string): Promise<Con
   return url ? { url } : null;
 }
 
+/**
+ * Отвязывает тулкит: отзывает доступ на стороне Composio (удаляет все
+ * connected-аккаунты этого тулкита) и убирает запись из локальной БД.
+ * Возвращает false, только если записи не было изначально.
+ */
+export async function disconnectApp(userId: number, toolkit: string): Promise<boolean> {
+  const had = composioRepo.listToolkits(userId).includes(toolkit);
+
+  try {
+    const list: any = await (composio() as any).connectedAccounts.list({
+      userIds: [String(userId)],
+    });
+    const items: any[] = list?.items ?? (Array.isArray(list) ? list : []);
+    const forToolkit = items.filter((a) => (a.toolkit?.slug ?? a.toolkitSlug) === toolkit);
+    for (const a of forToolkit) {
+      await (composio() as any).connectedAccounts.delete(a.id).catch(() => {});
+    }
+  } catch (err) {
+    logger.warn({ err, toolkit }, 'Не удалось отозвать доступ Composio при отвязке');
+  }
+
+  composioRepo.remove(userId, toolkit);
+  return had;
+}
+
 /** Регистрирует маршрут callback Composio на общем HTTP-сервере. */
 export function registerComposioRoutes(onConnect: (userId: number, toolkit: string) => void): void {
   registerRoute('/composio/callback', (url, res) => {
