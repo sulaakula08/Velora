@@ -22,6 +22,8 @@ export interface SupportedApp {
 export const SUPPORTED_APPS: SupportedApp[] = [
   { slug: 'gmail', name: 'Gmail' },
   { slug: 'googlecalendar', name: 'Google Календарь' },
+  { slug: 'googlemeet', name: 'Google Meet' },
+  { slug: 'googledocs', name: 'Google Docs' },
   { slug: 'slack', name: 'Slack' },
   { slug: 'notion', name: 'Notion' },
   { slug: 'github', name: 'GitHub' },

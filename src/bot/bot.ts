@@ -51,6 +51,8 @@ export function createBot(): TelegramBot {
 const APP_EMOJI: Record<string, string> = {
   gmail: '📧',
   googlecalendar: '📅',
+  googlemeet: '🎥',
+  googledocs: '📄',
   slack: '💬',
   notion: '📝',
   github: '🐙',
