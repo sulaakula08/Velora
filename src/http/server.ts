@@ -2,7 +2,11 @@ import http from 'http';
 import { config } from '../config';
 import { logger } from '../logger';
 
-export type RouteHandler = (url: URL, res: http.ServerResponse) => Promise<void> | void;
+export type RouteHandler = (
+  url: URL,
+  res: http.ServerResponse,
+  req: http.IncomingMessage,
+) => Promise<void> | void;
 
 const routes = new Map<string, RouteHandler>();
 let server: http.Server | null = null;
@@ -32,7 +36,7 @@ export function startHttpServer(): http.Server {
       return;
     }
     try {
-      await handler(url, res);
+      await handler(url, res, req);
     } catch (err) {
       logger.error({ err, path: url.pathname }, 'Ошибка обработки HTTP-запроса');
       if (!res.headersSent) {

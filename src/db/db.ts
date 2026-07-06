@@ -95,6 +95,15 @@ CREATE TABLE IF NOT EXISTS google_tokens (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS subscriptions (
+  user_id            INTEGER PRIMARY KEY,
+  status             TEXT    NOT NULL DEFAULT 'active',
+  current_period_end INTEGER,
+  provider           TEXT,
+  provider_ref       TEXT,
+  updated_at         INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS composio_connections (
   user_id    INTEGER NOT NULL,
   toolkit    TEXT    NOT NULL,

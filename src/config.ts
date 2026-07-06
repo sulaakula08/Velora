@@ -43,6 +43,14 @@ export const config = {
   // JSON-карта: slug тулкита → id auth-конфига из дашборда Composio, напр.
   // {"gmail":"ac_...","googlecalendar":"ac_..."}
   composioAuthConfigs: parseJsonMap(process.env.COMPOSIO_AUTH_CONFIGS),
+  // Биллинг (подписка Pro) через LemonSqueezy. Если webhook-secret не задан —
+  // гейтинг ВЫКЛЮЧЕН: все функции доступны без ограничений (режим до монетизации).
+  lemonWebhookSecret: process.env.LEMONSQUEEZY_WEBHOOK_SECRET?.trim() || '',
+  // Ссылка на чекаут продукта Pro из дашборда LemonSqueezy.
+  lemonCheckoutUrl: process.env.LEMONSQUEEZY_CHECKOUT_URL?.trim() || '',
+  // Лимиты бесплатного тарифа.
+  freeDailyMessages: parseInt(process.env.FREE_DAILY_MESSAGES || '20', 10),
+  freeMaxIntegrations: parseInt(process.env.FREE_MAX_INTEGRATIONS || '1', 10),
 } as const;
 
 function parseJsonMap(raw?: string): Record<string, string> {

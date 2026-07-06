@@ -123,6 +123,9 @@ const stmtAddMessage = db.prepare(
 const stmtRecentMessages = db.prepare(
   `SELECT role, content FROM messages WHERE user_id = ? ORDER BY id DESC LIMIT ?`,
 );
+const stmtCountUserSince = db.prepare(
+  `SELECT COUNT(*) AS n FROM messages WHERE user_id = ? AND role = 'user' AND created_at >= ?`,
+);
 
 export const messagesRepo = {
   add(userId: number, role: 'user' | 'assistant', content: string): void {
@@ -132,6 +135,11 @@ export const messagesRepo = {
   recent(userId: number, limit: number): StoredMessage[] {
     const rows = stmtRecentMessages.all(userId, limit) as StoredMessage[];
     return rows.reverse();
+  },
+  /** Сколько сообщений пользователь отправил начиная с момента since (эпоха, мс). */
+  countUserSince(userId: number, since: number): number {
+    const row = stmtCountUserSince.get(userId, since) as { n: number };
+    return row.n;
   },
 };
 
@@ -340,6 +348,54 @@ export const composioRepo = {
   },
   remove(userId: number, toolkit: string): void {
     stmtRemoveComposio.run(userId, toolkit);
+  },
+  count(userId: number): number {
+    return composioRepo.listToolkits(userId).length;
+  },
+};
+
+// ---------- subscriptions (подписка Pro) ----------
+
+export interface SubscriptionRow {
+  user_id: number;
+  status: string; // 'active' | 'cancelled' | 'expired'
+  current_period_end: number | null;
+  provider: string | null;
+  provider_ref: string | null;
+  updated_at: number;
+}
+
+const stmtGetSub = db.prepare(`SELECT * FROM subscriptions WHERE user_id = ?`);
+const stmtUpsertSub = db.prepare(
+  `INSERT INTO subscriptions (user_id, status, current_period_end, provider, provider_ref, updated_at)
+   VALUES (@userId, @status, @periodEnd, @provider, @ref, @now)
+   ON CONFLICT(user_id) DO UPDATE SET
+     status = @status, current_period_end = @periodEnd,
+     provider = @provider, provider_ref = @ref, updated_at = @now`,
+);
+const stmtSetSubStatus = db.prepare(
+  `UPDATE subscriptions SET status = @status, updated_at = @now WHERE user_id = @userId`,
+);
+
+export const subscriptionsRepo = {
+  get(userId: number): SubscriptionRow | undefined {
+    return stmtGetSub.get(userId) as SubscriptionRow | undefined;
+  },
+  activate(
+    userId: number,
+    opts: { periodEnd: number | null; provider: string; ref: string | null },
+  ): void {
+    stmtUpsertSub.run({
+      userId,
+      status: 'active',
+      periodEnd: opts.periodEnd,
+      provider: opts.provider,
+      ref: opts.ref,
+      now: Date.now(),
+    });
+  },
+  setStatus(userId: number, status: 'cancelled' | 'expired'): void {
+    stmtSetSubStatus.run({ userId, status, now: Date.now() });
   },
 };
 

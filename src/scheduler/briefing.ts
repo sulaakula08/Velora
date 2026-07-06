@@ -2,6 +2,7 @@ import { tasksRepo, remindersRepo, composioRepo } from '../db/repositories';
 import { t, type Lang } from '../i18n/i18n';
 import { isComposioConfigured } from '../integrations/composio/client';
 import { executeComposioRaw } from '../integrations/composio/tools';
+import { isPro } from '../billing/plans';
 import { logger } from '../logger';
 
 /** Эпоха конца текущего дня в часовом поясе (Asia/Almaty = +05:00, без летнего времени). */
@@ -38,6 +39,7 @@ function parseEmails(data: any): { from: string; subject: string }[] {
  */
 async function buildEmailDigest(userId: number, lang: Lang): Promise<string | null> {
   if (!isComposioConfigured()) return null;
+  if (!isPro(userId)) return null; // дайджест почты — функция Pro
   if (!composioRepo.listToolkits(userId).includes('gmail')) return null;
 
   try {

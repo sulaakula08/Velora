@@ -9,6 +9,8 @@ import { isGoogleConfigured } from './integrations/google/oauth';
 import { registerGoogleRoutes } from './integrations/google/server';
 import { isComposioConfigured, SUPPORTED_APPS } from './integrations/composio/client';
 import { registerComposioRoutes } from './integrations/composio/connect';
+import { billingEnabled } from './billing/plans';
+import { registerBillingRoutes } from './billing/lemonsqueezy';
 
 function main(): void {
   logger.info('Запуск Velora…');
@@ -26,6 +28,15 @@ function main(): void {
 
   const googleOn = isGoogleConfigured();
   const composioOn = isComposioConfigured();
+  const billingOn = billingEnabled();
+
+  // Биллинг (подписка Pro) через LemonSqueezy.
+  if (billingOn) {
+    registerBillingRoutes((userId, active) => {
+      const user = usersRepo.get(userId);
+      if (user) notify(userId, t(active ? 'pro_activated' : 'pro_ended', user.language));
+    });
+  }
 
   // Собственный OAuth Google (Calendar + Gmail).
   if (googleOn) {
@@ -44,11 +55,11 @@ function main(): void {
     });
   }
 
-  // Единый HTTP-сервер для callback'ов — только если есть хотя бы одна интеграция.
-  if (googleOn || composioOn) {
+  // Единый HTTP-сервер для callback'ов интеграций и webhook'ов биллинга.
+  if (googleOn || composioOn || billingOn) {
     startHttpServer();
   } else {
-    logger.info('Интеграции выключены (нет GOOGLE_* и COMPOSIO_API_KEY)');
+    logger.info('Интеграции и биллинг выключены');
   }
 
   logger.info('Velora готова к работе. Напиши боту в Telegram.');

@@ -14,6 +14,14 @@ import {
   SUPPORTED_APPS,
 } from '../integrations/composio/client';
 import { startConnect, disconnectApp } from '../integrations/composio/connect';
+import {
+  getPlan,
+  isPro,
+  checkDailyLimit,
+  canConnectMore,
+  checkoutUrlFor,
+  billingEnabled,
+} from '../billing/plans';
 
 export function createBot(): TelegramBot {
   const options: TelegramBot.ConstructorOptions = { polling: true };
@@ -79,6 +87,13 @@ function disconnectKeyboard(userId: number): TelegramBot.InlineKeyboardMarkup {
     return [{ text: `❌ ${APP_EMOJI[slug] ?? '🔌'} ${name}`, callback_data: `disconnect:${slug}` }];
   });
   return { inline_keyboard: rows };
+}
+
+/** Inline-кнопка перехода к оплате Pro (ссылка с привязкой к Telegram-аккаунту). */
+function upgradeKeyboard(userId: number, lang: Lang): TelegramBot.InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [[{ text: t('upgrade_button', lang), url: checkoutUrlFor(userId) }]],
+  };
 }
 
 /** Inline-клавиатура выбора режима голосовых ответов. */
@@ -148,6 +163,16 @@ async function handleCallback(
 
   // Убираем «часики» на кнопке сразу, чтобы Telegram не показывал загрузку.
   await bot.answerCallbackQuery(query.id).catch(() => {});
+
+  if (!composioRepo.listToolkits(userId).includes(app.slug) && !canConnectMore(userId)) {
+    await bot.sendMessage(
+      chatId,
+      t('connect_limit', lang, { limit: String(config.freeMaxIntegrations) }),
+      billingEnabled() ? { reply_markup: upgradeKeyboard(userId, lang) } : undefined,
+    );
+    return;
+  }
+
   await bot.sendChatAction(chatId, 'typing').catch(() => {});
 
   try {
@@ -214,6 +239,17 @@ async function handleMessage(bot: TelegramBot, msg: TelegramBot.Message): Promis
     }
   }
 
+  // Лимит бесплатного тарифа: если исчерпан — предлагаем оформить Pro.
+  const usage = checkDailyLimit(userId);
+  if (usage.exceeded) {
+    await bot.sendMessage(
+      chatId,
+      t('limit_reached', lang, { limit: String(usage.limit) }),
+      billingEnabled() ? { reply_markup: upgradeKeyboard(userId, lang) } : undefined,
+    );
+    return;
+  }
+
   // Для сообщений без текста (только вложение) даём модели нейтральную инструкцию.
   const promptText = effectiveText || 'Разбери вложение и помоги по сути на языке пользователя.';
   const historyLabel = effectiveText || media.label;
@@ -255,7 +291,9 @@ async function handleMessage(bot: TelegramBot, msg: TelegramBot.Message): Promis
     // В голосовом режиме отправляем ТОЛЬКО голосовое (без дублирующего текста);
     // текст остаётся лишь запасным вариантом, если синтез не удался.
     const wasVoice = media.label === '[голосовое]';
-    const wantVoice = user.voice_mode === 'always' || (user.voice_mode === 'reply' && wasVoice);
+    const wantVoice =
+      isPro(userId) &&
+      (user.voice_mode === 'always' || (user.voice_mode === 'reply' && wasVoice));
     let voiceSent = false;
 
     if (wantVoice) {
@@ -341,7 +379,45 @@ async function handleCommand(
       return;
     }
 
+    case '/upgrade':
+    case '/pro': {
+      if (!billingEnabled()) {
+        await bot.sendMessage(chatId, t('billing_off', lang));
+        return;
+      }
+      if (isPro(userId)) {
+        await bot.sendMessage(chatId, t('already_pro', lang));
+        return;
+      }
+      await bot.sendMessage(chatId, t('upgrade_prompt', lang), {
+        reply_markup: upgradeKeyboard(userId, lang),
+      });
+      return;
+    }
+
+    case '/plan':
+    case '/status': {
+      if (getPlan(userId) === 'pro') {
+        await bot.sendMessage(chatId, t('plan_pro', lang));
+      } else {
+        const usage = checkDailyLimit(userId);
+        await bot.sendMessage(
+          chatId,
+          t('plan_free', lang, { used: String(usage.used), limit: String(usage.limit) }),
+          billingEnabled() ? { reply_markup: upgradeKeyboard(userId, lang) } : undefined,
+        );
+      }
+      return;
+    }
+
     case '/voice': {
+      // Голосовые ответы — функция Pro.
+      if (billingEnabled() && !isPro(userId)) {
+        await bot.sendMessage(chatId, t('voice_pro_only', lang), {
+          reply_markup: upgradeKeyboard(userId, lang),
+        });
+        return;
+      }
       const choice = arg?.toLowerCase();
       if (choice === 'off' || choice === 'reply' || choice === 'always') {
         usersRepo.setVoiceMode(userId, choice);
@@ -376,6 +452,14 @@ async function handleCommand(
       const app = findApp(choice);
       if (!app) {
         await bot.sendMessage(chatId, t('connect_unknown', lang));
+        return;
+      }
+      if (!composioRepo.listToolkits(userId).includes(app.slug) && !canConnectMore(userId)) {
+        await bot.sendMessage(
+          chatId,
+          t('connect_limit', lang, { limit: String(config.freeMaxIntegrations) }),
+          billingEnabled() ? { reply_markup: upgradeKeyboard(userId, lang) } : undefined,
+        );
         return;
       }
       try {
