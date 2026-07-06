@@ -90,7 +90,7 @@ async function sendBriefings(bot: TelegramBot): Promise<void> {
     if (user.briefing_hour !== hour) continue;
     if (user.last_briefing_date === date) continue; // уже отправляли сегодня
     try {
-      const text = buildBriefing(user.user_id, user.language, config.timezone);
+      const text = await buildBriefing(user.user_id, user.language, config.timezone);
       await bot.sendMessage(user.chat_id, text);
       usersRepo.markBriefingSent(user.user_id, date);
     } catch (err) {

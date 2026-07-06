@@ -88,6 +88,24 @@ export async function getComposioTools(userId: number): Promise<ComposioBundle> 
   return { declarations, slugs };
 }
 
+/**
+ * Выполняет инструмент Composio и возвращает СЫРОЙ распарсенный результат
+ * (без усечения и JSON.stringify) — нужно, например, для дайджеста почты,
+ * где важна структура ответа. Бросает исключение при ошибке.
+ */
+export async function executeComposioRaw(
+  userId: number,
+  slug: string,
+  args: Record<string, any>,
+): Promise<any> {
+  const result: any = await (composio() as any).tools.execute(slug, {
+    userId: String(userId),
+    arguments: args,
+    dangerouslySkipVersionCheck: true,
+  });
+  return result?.data ?? result;
+}
+
 /** Выполняет инструмент Composio от имени пользователя, возвращает текст результата. */
 export async function executeComposio(
   userId: number,

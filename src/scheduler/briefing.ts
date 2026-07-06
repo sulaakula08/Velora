@@ -1,5 +1,8 @@
-import { tasksRepo, remindersRepo } from '../db/repositories';
+import { tasksRepo, remindersRepo, composioRepo } from '../db/repositories';
 import { t, type Lang } from '../i18n/i18n';
+import { isComposioConfigured } from '../integrations/composio/client';
+import { executeComposioRaw } from '../integrations/composio/tools';
+import { logger } from '../logger';
 
 /** Эпоха конца текущего дня в часовом поясе (Asia/Almaty = +05:00, без летнего времени). */
 function endOfTodayEpoch(tz: string): number {
@@ -11,16 +14,62 @@ function fmtTime(epoch: number, tz: string): string {
   return new Intl.DateTimeFormat('ru-RU', { timeZone: tz, timeStyle: 'short' }).format(new Date(epoch));
 }
 
+/** Обрезает длинную строку (имя отправителя/тема), чтобы дайджест был компактным. */
+function shorten(value: string, max = 60): string {
+  const v = value.replace(/\s+/g, ' ').trim();
+  return v.length > max ? v.slice(0, max - 1) + '…' : v;
+}
+
+/** Достаёт «отправитель — тема» из разных возможных форм ответа GMAIL_FETCH_EMAILS. */
+function parseEmails(data: any): { from: string; subject: string }[] {
+  const arr: any[] =
+    data?.messages ?? data?.emails ?? data?.data?.messages ?? (Array.isArray(data) ? data : []);
+  if (!Array.isArray(arr)) return [];
+  return arr.slice(0, 5).map((m) => ({
+    from: shorten(String(m?.sender ?? m?.from ?? m?.From ?? '—').replace(/<[^>]*>/g, '').trim() || '—'),
+    subject: shorten(String(m?.subject ?? m?.Subject ?? m?.snippet ?? m?.preview ?? '(без темы)')),
+  }));
+}
+
+/**
+ * Дайджест непрочитанных писем во входящих — только если пользователь подключил
+ * Gmail через Composio. При любой ошибке возвращает null (секция просто не попадёт
+ * в брифинг, брифинг не ломается).
+ */
+async function buildEmailDigest(userId: number, lang: Lang): Promise<string | null> {
+  if (!isComposioConfigured()) return null;
+  if (!composioRepo.listToolkits(userId).includes('gmail')) return null;
+
+  try {
+    const data = await executeComposioRaw(userId, 'GMAIL_FETCH_EMAILS', {
+      user_id: 'me',
+      max_results: 5,
+      query: 'is:unread in:inbox',
+    });
+    const emails = parseEmails(data);
+    if (emails.length === 0) return null;
+
+    const lines = [t('briefing_email_header', lang, { count: String(emails.length) })];
+    emails.forEach((e) => lines.push(`• ${e.from} — ${e.subject}`));
+    return lines.join('\n');
+  } catch (err) {
+    logger.warn({ err, userId }, 'Не удалось собрать дайджест почты для брифинга');
+    return null;
+  }
+}
+
 /**
  * Собирает текст утреннего брифинга: приветствие + задачи на сегодня (и просроченные)
- * + напоминания на сегодня. Если ничего нет — короткое пожелание хорошего дня.
+ * + напоминания на сегодня + дайджест непрочитанной почты. Если ничего нет —
+ * короткое пожелание хорошего дня.
  */
-export function buildBriefing(userId: number, lang: Lang, tz: string): string {
+export async function buildBriefing(userId: number, lang: Lang, tz: string): Promise<string> {
   const end = endOfTodayEpoch(tz);
   const tasks = tasksRepo.dueBy(userId, end);
   const reminders = remindersRepo.pendingBy(userId, end);
+  const emailDigest = await buildEmailDigest(userId, lang);
 
-  if (tasks.length === 0 && reminders.length === 0) {
+  if (tasks.length === 0 && reminders.length === 0 && !emailDigest) {
     return t('briefing_empty', lang);
   }
 
@@ -34,6 +83,10 @@ export function buildBriefing(userId: number, lang: Lang, tz: string): string {
   if (reminders.length > 0) {
     lines.push('', t('briefing_reminders_header', lang));
     reminders.forEach((r) => lines.push(`• ${fmtTime(r.remind_at, tz)} — ${r.text}`));
+  }
+
+  if (emailDigest) {
+    lines.push('', emailDigest);
   }
 
   return lines.join('\n');

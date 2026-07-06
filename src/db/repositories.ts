@@ -12,7 +12,10 @@ export interface UserRow {
   last_briefing_date: string | null;
   username: string | null;
   first_name: string | null;
+  voice_mode: VoiceMode;
 }
+
+export type VoiceMode = 'off' | 'reply' | 'always';
 
 export interface BriefingCandidate {
   user_id: number;
@@ -69,6 +72,9 @@ const stmtBriefingCandidates = db.prepare(
 const stmtMarkBriefing = db.prepare(
   `UPDATE users SET last_briefing_date = @date WHERE user_id = @userId`,
 );
+const stmtSetVoiceMode = db.prepare(
+  `UPDATE users SET voice_mode = @mode WHERE user_id = @userId`,
+);
 
 export const usersRepo = {
   ensure(userId: number, chatId: number, username?: string, firstName?: string): UserRow {
@@ -103,6 +109,9 @@ export const usersRepo = {
   },
   markBriefingSent(userId: number, date: string): void {
     stmtMarkBriefing.run({ userId, date });
+  },
+  setVoiceMode(userId: number, mode: VoiceMode): void {
+    stmtSetVoiceMode.run({ userId, mode });
   },
 };
 

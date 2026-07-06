@@ -120,6 +120,8 @@ ensureColumn('users', 'briefing_hour', 'briefing_hour INTEGER NOT NULL DEFAULT 9
 ensureColumn('users', 'last_briefing_date', 'last_briefing_date TEXT');
 ensureColumn('users', 'username', 'username TEXT');
 ensureColumn('users', 'first_name', 'first_name TEXT');
+// Режим голосовых ответов: 'off' | 'reply' (только на голосовые) | 'always'.
+ensureColumn('users', 'voice_mode', "voice_mode TEXT NOT NULL DEFAULT 'off'");
 db.exec('CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)');
 
 /** Явная инициализация для точки входа: гарантирует загрузку модуля и пишет лог. */

@@ -2,8 +2,9 @@ import TelegramBot from 'node-telegram-bot-api';
 import { config } from '../config';
 import { logger } from '../logger';
 import { t, detectLang, type Lang } from '../i18n/i18n';
-import { usersRepo, messagesRepo, composioRepo } from '../db/repositories';
+import { usersRepo, messagesRepo, composioRepo, type VoiceMode } from '../db/repositories';
 import { runAgent } from '../ai/agent';
+import { synthesizeVoice } from '../ai/tts';
 import { collectMedia, type CollectedMedia } from './media';
 import type { ToolContext } from '../tools/types';
 import {
@@ -80,7 +81,18 @@ function disconnectKeyboard(userId: number): TelegramBot.InlineKeyboardMarkup {
   return { inline_keyboard: rows };
 }
 
-/** Обрабатывает нажатия inline-кнопок (пока — подключение приложений). */
+/** Inline-клавиатура выбора режима голосовых ответов. */
+function voiceKeyboard(lang: Lang): TelegramBot.InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [{ text: t('voice_btn_always', lang), callback_data: 'voice:always' }],
+      [{ text: t('voice_btn_reply', lang), callback_data: 'voice:reply' }],
+      [{ text: t('voice_btn_off', lang), callback_data: 'voice:off' }],
+    ],
+  };
+}
+
+/** Обрабатывает нажатия inline-кнопок (подключение приложений, режим голоса). */
 async function handleCallback(
   bot: TelegramBot,
   query: TelegramBot.CallbackQuery,
@@ -92,6 +104,16 @@ async function handleCallback(
 
   if (!chatId) {
     await bot.answerCallbackQuery(query.id).catch(() => {});
+    return;
+  }
+
+  // Выбор режима голосовых ответов.
+  if (data.startsWith('voice:')) {
+    await bot.answerCallbackQuery(query.id).catch(() => {});
+    const mode = data.slice('voice:'.length) as VoiceMode;
+    usersRepo.setVoiceMode(userId, mode);
+    const key = mode === 'always' ? 'voice_on_always' : mode === 'reply' ? 'voice_on_reply' : 'voice_off';
+    await bot.sendMessage(chatId, t(key, lang));
     return;
   }
 
@@ -230,6 +252,20 @@ async function handleMessage(bot: TelegramBot, msg: TelegramBot.Message): Promis
     messagesRepo.add(userId, 'assistant', reply);
 
     await bot.sendMessage(chatId, reply);
+
+    // Голосовой ответ: всегда либо только в ответ на голосовое — по настройке юзера.
+    const wasVoice = media.label === '[голосовое]';
+    if (user.voice_mode === 'always' || (user.voice_mode === 'reply' && wasVoice)) {
+      try {
+        await bot.sendChatAction(chatId, 'record_voice').catch(() => {});
+        const ogg = await synthesizeVoice(reply);
+        if (ogg) {
+          await bot.sendVoice(chatId, ogg, {}, { filename: 'velora.ogg', contentType: 'audio/ogg' });
+        }
+      } catch (err) {
+        logger.error({ err, userId }, 'Не удалось отправить голосовой ответ');
+      }
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error({ err, userId, message }, 'Ошибка обработки сообщения через Gemini');
@@ -293,6 +329,20 @@ async function handleCommand(
         const state =
           user && user.briefing_enabled ? `${currentHour}:00` : t('briefing_off', lang);
         await bot.sendMessage(chatId, t('briefing_usage', lang, { state }));
+      }
+      return;
+    }
+
+    case '/voice': {
+      const choice = arg?.toLowerCase();
+      if (choice === 'off' || choice === 'reply' || choice === 'always') {
+        usersRepo.setVoiceMode(userId, choice);
+        const key =
+          choice === 'always' ? 'voice_on_always' : choice === 'reply' ? 'voice_on_reply' : 'voice_off';
+        await bot.sendMessage(chatId, t(key, lang));
+      } else {
+        // Без аргумента — показываем кнопки выбора режима.
+        await bot.sendMessage(chatId, t('voice_choose', lang), { reply_markup: voiceKeyboard(lang) });
       }
       return;
     }

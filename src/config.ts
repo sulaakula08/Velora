@@ -15,6 +15,9 @@ export const config = {
   telegramToken: required('TELEGRAM_BOT_TOKEN'),
   geminiApiKey: required('GEMINI_API_KEY'),
   model: process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash',
+  // Модель и голос для синтеза речи (голосовые ответы Velora).
+  ttsModel: process.env.GEMINI_TTS_MODEL?.trim() || 'gemini-2.5-flash-preview-tts',
+  ttsVoice: process.env.GEMINI_TTS_VOICE?.trim() || 'Kore',
   historyLimit: parseInt(process.env.HISTORY_LIMIT || '20', 10),
   timezone: process.env.TIMEZONE?.trim() || 'Asia/Almaty',
   dbPath: process.env.DB_PATH?.trim() || './velora.db',
