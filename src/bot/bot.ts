@@ -5,7 +5,6 @@ import { t, detectLang, type Lang } from '../i18n/i18n';
 import { usersRepo, messagesRepo, composioRepo } from '../db/repositories';
 import { runAgent } from '../ai/agent';
 import { collectMedia, type CollectedMedia } from './media';
-import { withLiveReply } from './liveReply';
 import type { ToolContext } from '../tools/types';
 import {
   isComposioConfigured,
@@ -210,14 +209,25 @@ async function handleMessage(bot: TelegramBot, msg: TelegramBot.Message): Promis
       },
     };
 
-    // Живой индикатор загрузки + «печатающийся» вывод ответа.
-    await withLiveReply(bot, chatId, lang, async () => {
-      const reply = await runAgent(history, promptText, ctx, media.parts);
-      // Сохраняем ход диалога в историю (вложения не храним — только их метку).
-      messagesRepo.add(userId, 'user', historyLabel);
-      messagesRepo.add(userId, 'assistant', reply);
-      return reply;
-    });
+    // Нативный индикатор Telegram «печатает…» — рисуется клиентом и выглядит
+    // плавно. Действие живёт ~5 сек, поэтому продлеваем его, пока модель думает.
+    await bot.sendChatAction(chatId, 'typing').catch(() => {});
+    const typing = setInterval(() => {
+      bot.sendChatAction(chatId, 'typing').catch(() => {});
+    }, 4500);
+
+    let reply: string;
+    try {
+      reply = await runAgent(history, promptText, ctx, media.parts);
+    } finally {
+      clearInterval(typing);
+    }
+
+    // Сохраняем ход диалога в историю (вложения не храним — только их метку).
+    messagesRepo.add(userId, 'user', historyLabel);
+    messagesRepo.add(userId, 'assistant', reply);
+
+    await bot.sendMessage(chatId, reply);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error({ err, userId, message }, 'Ошибка обработки сообщения через Gemini');
