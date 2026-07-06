@@ -251,20 +251,28 @@ async function handleMessage(bot: TelegramBot, msg: TelegramBot.Message): Promis
     messagesRepo.add(userId, 'user', historyLabel);
     messagesRepo.add(userId, 'assistant', reply);
 
-    await bot.sendMessage(chatId, reply);
-
     // Голосовой ответ: всегда либо только в ответ на голосовое — по настройке юзера.
+    // В голосовом режиме отправляем ТОЛЬКО голосовое (без дублирующего текста);
+    // текст остаётся лишь запасным вариантом, если синтез не удался.
     const wasVoice = media.label === '[голосовое]';
-    if (user.voice_mode === 'always' || (user.voice_mode === 'reply' && wasVoice)) {
+    const wantVoice = user.voice_mode === 'always' || (user.voice_mode === 'reply' && wasVoice);
+    let voiceSent = false;
+
+    if (wantVoice) {
       try {
         await bot.sendChatAction(chatId, 'record_voice').catch(() => {});
         const ogg = await synthesizeVoice(reply);
         if (ogg) {
           await bot.sendVoice(chatId, ogg, {}, { filename: 'velora.ogg', contentType: 'audio/ogg' });
+          voiceSent = true;
         }
       } catch (err) {
         logger.error({ err, userId }, 'Не удалось отправить голосовой ответ');
       }
+    }
+
+    if (!voiceSent) {
+      await bot.sendMessage(chatId, reply);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

@@ -1,8 +1,17 @@
 import { spawn } from 'child_process';
+import { existsSync } from 'fs';
 import ffmpegPath from 'ffmpeg-static';
 import { ai } from './client';
 import { config } from '../config';
 import { logger } from '../logger';
+
+// При старте один раз проверяем, что бинарь ffmpeg реально на месте (на некоторых
+// хостингах ffmpeg-static не докачивается при билде) — иначе голосовые молча не идут.
+if (!ffmpegPath || !existsSync(ffmpegPath)) {
+  logger.error({ ffmpegPath }, 'ffmpeg не найден — голосовые ответы работать не будут');
+} else {
+  logger.info({ ffmpegPath }, 'ffmpeg найден — голосовые ответы доступны');
+}
 
 // Gemini TTS отдаёт «сырой» PCM (16-bit, моно, 24 кГц). Telegram для голосовых
 // сообщений (sendVoice) требует OGG/Opus, поэтому конвертируем через ffmpeg.
