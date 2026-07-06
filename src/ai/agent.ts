@@ -47,7 +47,11 @@ export async function runAgent(
   }
 
   const generationConfig = {
-    systemInstruction: buildSystemPrompt(profileRepo.list(ctx.userId)),
+    systemInstruction: buildSystemPrompt(profileRepo.list(ctx.userId), {
+      // senderName может быть подстановкой-заглушкой «Пользователь» — тогда имя не передаём.
+      firstName: ctx.senderName === 'Пользователь' ? undefined : ctx.senderName,
+      username: ctx.senderUsername,
+    }),
     tools: [{ functionDeclarations: declarations }],
   };
 

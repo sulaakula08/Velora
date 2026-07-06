@@ -2,13 +2,11 @@ import TelegramBot from 'node-telegram-bot-api';
 import { config } from '../config';
 import { logger } from '../logger';
 import { t, detectLang, type Lang } from '../i18n/i18n';
-import { usersRepo, messagesRepo, googleTokensRepo, composioRepo } from '../db/repositories';
-import { randomUUID } from 'crypto';
+import { usersRepo, messagesRepo, composioRepo } from '../db/repositories';
 import { runAgent } from '../ai/agent';
 import { collectMedia, type CollectedMedia } from './media';
+import { withLiveReply } from './liveReply';
 import type { ToolContext } from '../tools/types';
-import { isGoogleConfigured, buildAuthUrl } from '../integrations/google/oauth';
-import { registerOAuthState } from '../integrations/google/server';
 import {
   isComposioConfigured,
   availableApps,
@@ -199,8 +197,6 @@ async function handleMessage(bot: TelegramBot, msg: TelegramBot.Message): Promis
 
   // --- Прогоняем через Gemini ---
   try {
-    await bot.sendChatAction(chatId, 'typing');
-
     const history = messagesRepo.recent(userId, config.historyLimit);
     const ctx: ToolContext = {
       userId,
@@ -213,13 +209,15 @@ async function handleMessage(bot: TelegramBot, msg: TelegramBot.Message): Promis
         await bot.sendMessage(targetChatId, targetText);
       },
     };
-    const reply = await runAgent(history, promptText, ctx, media.parts);
 
-    // Сохраняем ход диалога в историю (вложения не храним — только их метку).
-    messagesRepo.add(userId, 'user', historyLabel);
-    messagesRepo.add(userId, 'assistant', reply);
-
-    await bot.sendMessage(chatId, reply);
+    // Живой индикатор загрузки + «печатающийся» вывод ответа.
+    await withLiveReply(bot, chatId, lang, async () => {
+      const reply = await runAgent(history, promptText, ctx, media.parts);
+      // Сохраняем ход диалога в историю (вложения не храним — только их метку).
+      messagesRepo.add(userId, 'user', historyLabel);
+      messagesRepo.add(userId, 'assistant', reply);
+      return reply;
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error({ err, userId, message }, 'Ошибка обработки сообщения через Gemini');
@@ -284,24 +282,6 @@ async function handleCommand(
           user && user.briefing_enabled ? `${currentHour}:00` : t('briefing_off', lang);
         await bot.sendMessage(chatId, t('briefing_usage', lang, { state }));
       }
-      return;
-    }
-
-    case '/connect_google': {
-      if (!isGoogleConfigured()) {
-        await bot.sendMessage(chatId, t('google_not_configured', lang));
-        return;
-      }
-      const state = randomUUID();
-      registerOAuthState(state, userId);
-      const url = buildAuthUrl(state);
-      await bot.sendMessage(chatId, `${t('google_connect', lang)}\n\n${url}`);
-      return;
-    }
-
-    case '/disconnect_google': {
-      googleTokensRepo.delete(userId);
-      await bot.sendMessage(chatId, t('google_disconnected', lang));
       return;
     }
 
