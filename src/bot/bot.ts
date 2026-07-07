@@ -2,7 +2,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import { config } from '../config';
 import { logger } from '../logger';
 import { t, detectLang, type Lang } from '../i18n/i18n';
-import { usersRepo, messagesRepo, composioRepo, subscriptionsRepo, type VoiceMode } from '../db/repositories';
+import { usersRepo, messagesRepo, composioRepo, subscriptionsRepo, statsRepo, type VoiceMode } from '../db/repositories';
 import { runAgent } from '../ai/agent';
 import { synthesizeVoice } from '../ai/tts';
 import { fetchStarInfo } from '../billing/starsBalance';
@@ -608,6 +608,48 @@ async function handleCommand(
       }
       subscriptionsRepo.setStatus(userId, 'cancelled');
       await bot.sendMessage(chatId, t('cancel_done', lang));
+      return;
+    }
+
+    case '/stats': {
+      // Админ-сводка метрик: /stats <пароль>
+      if (arg !== config.adminPassword) {
+        await bot.sendMessage(chatId, t('admin_denied', lang));
+        return;
+      }
+      const now = Date.now();
+      const day = now - 24 * 3600 * 1000;
+      const week = now - 7 * 24 * 3600 * 1000;
+
+      const total = statsRepo.totalUsers();
+      const pro = statsRepo.activePro(now);
+      const free = total - pro;
+      const prompts = statsRepo.totalPrompts();
+      const avg = total > 0 ? (prompts / total).toFixed(1) : '0';
+      const conv = total > 0 ? ((pro / total) * 100).toFixed(1) : '0';
+
+      const text = [
+        '📊 Статистика Velora',
+        '',
+        `👥 Пользователей: ${total}`,
+        `⭐ Pro (активны): ${pro}`,
+        `🆓 Free: ${free}`,
+        `📈 Конверсия в Pro: ${conv}%`,
+        '',
+        `🆕 Новых за сутки: ${statsRepo.newUsersSince(day)}`,
+        `🆕 Новых за 7 дней: ${statsRepo.newUsersSince(week)}`,
+        `🔥 Активных за сутки: ${statsRepo.activeUsersSince(day)}`,
+        `🔥 Активных за 7 дней: ${statsRepo.activeUsersSince(week)}`,
+        '',
+        `💬 Запросов всего: ${prompts}`,
+        `💬 За сутки: ${statsRepo.promptsSince(day)}`,
+        `💬 Среднее на юзера: ${avg}`,
+        '',
+        `🎁 Пришли по рефералке: ${statsRepo.referredUsers()}`,
+        `⏰ Отложенных отправок: ${statsRepo.pendingScheduled()}`,
+      ].join('\n');
+
+      await bot.sendMessage(chatId, text);
       return;
     }
 

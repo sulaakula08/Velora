@@ -489,6 +489,37 @@ export const composioRepo = {
   },
 };
 
+// ---------- stats (админ-аналитика) ----------
+
+const stmtCountUsers = db.prepare(`SELECT COUNT(*) AS n FROM users`);
+const stmtCountUsersSince = db.prepare(`SELECT COUNT(*) AS n FROM users WHERE created_at >= ?`);
+const stmtCountActivePro = db.prepare(
+  `SELECT COUNT(*) AS n FROM subscriptions
+   WHERE status = 'active' AND (current_period_end IS NULL OR current_period_end > ?)`,
+);
+const stmtCountAllUserMessages = db.prepare(`SELECT COUNT(*) AS n FROM messages WHERE role = 'user'`);
+const stmtCountMessagesSince = db.prepare(
+  `SELECT COUNT(*) AS n FROM messages WHERE role = 'user' AND created_at >= ?`,
+);
+const stmtCountReferred = db.prepare(`SELECT COUNT(*) AS n FROM users WHERE referred_by IS NOT NULL`);
+const stmtCountPendingScheduled = db.prepare(`SELECT COUNT(*) AS n FROM scheduled_messages WHERE sent = 0`);
+const stmtCountActiveUsersSince = db.prepare(
+  `SELECT COUNT(DISTINCT user_id) AS n FROM messages WHERE role = 'user' AND created_at >= ?`,
+);
+
+const n = (row: unknown) => (row as { n: number }).n;
+
+export const statsRepo = {
+  totalUsers: () => n(stmtCountUsers.get()),
+  newUsersSince: (since: number) => n(stmtCountUsersSince.get(since)),
+  activePro: (now = Date.now()) => n(stmtCountActivePro.get(now)),
+  totalPrompts: () => n(stmtCountAllUserMessages.get()),
+  promptsSince: (since: number) => n(stmtCountMessagesSince.get(since)),
+  activeUsersSince: (since: number) => n(stmtCountActiveUsersSince.get(since)),
+  referredUsers: () => n(stmtCountReferred.get()),
+  pendingScheduled: () => n(stmtCountPendingScheduled.get()),
+};
+
 // ---------- subscriptions (подписка Pro) ----------
 
 export interface SubscriptionRow {
