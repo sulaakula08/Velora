@@ -13,6 +13,9 @@ export interface UserRow {
   username: string | null;
   first_name: string | null;
   voice_mode: VoiceMode;
+  referred_by: number | null;
+  ref_rewarded: number;
+  trial_granted: number;
 }
 
 export type VoiceMode = 'off' | 'reply' | 'always';
@@ -75,6 +78,14 @@ const stmtMarkBriefing = db.prepare(
 const stmtSetVoiceMode = db.prepare(
   `UPDATE users SET voice_mode = @mode WHERE user_id = @userId`,
 );
+const stmtSetReferredBy = db.prepare(
+  `UPDATE users SET referred_by = @refId WHERE user_id = @userId AND referred_by IS NULL`,
+);
+const stmtMarkRefRewarded = db.prepare(`UPDATE users SET ref_rewarded = 1 WHERE user_id = ?`);
+const stmtMarkTrialGranted = db.prepare(`UPDATE users SET trial_granted = 1 WHERE user_id = ?`);
+const stmtCountReferrals = db.prepare(
+  `SELECT COUNT(*) AS n FROM users WHERE referred_by = ?`,
+);
 
 export const usersRepo = {
   ensure(userId: number, chatId: number, username?: string, firstName?: string): UserRow {
@@ -112,6 +123,19 @@ export const usersRepo = {
   },
   setVoiceMode(userId: number, mode: VoiceMode): void {
     stmtSetVoiceMode.run({ userId, mode });
+  },
+  /** Привязывает пригласившего (только если ещё не задан). */
+  setReferredBy(userId: number, refId: number): void {
+    stmtSetReferredBy.run({ userId, refId });
+  },
+  markRefRewarded(userId: number): void {
+    stmtMarkRefRewarded.run(userId);
+  },
+  markTrialGranted(userId: number): void {
+    stmtMarkTrialGranted.run(userId);
+  },
+  countReferrals(userId: number): number {
+    return (stmtCountReferrals.get(userId) as { n: number }).n;
   },
 };
 

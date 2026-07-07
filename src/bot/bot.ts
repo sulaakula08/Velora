@@ -26,8 +26,13 @@ import {
   grantProDays,
   grantProUnlimited,
   promoActive,
-  proStarsAmount,
+  priceFor,
+  daysFor,
+  type BillingPeriod,
 } from '../billing/plans';
+
+// Username бота — для реферальных ссылок. Заполняется при старте (getMe).
+let botUsername = '';
 
 /** Зачёркивает текст (Unicode) — для «старой» цены в промо: 250 → 2̶5̶0̶. */
 function strike(s: string): string {
@@ -56,6 +61,14 @@ export function createBot(): TelegramBot {
   }
 
   const bot = new TelegramBot(config.telegramToken, options);
+
+  // Узнаём username бота для реферальных ссылок.
+  bot
+    .getMe()
+    .then((me) => {
+      botUsername = me.username ?? '';
+    })
+    .catch((err) => logger.warn({ err }, 'Не удалось получить username бота'));
 
   // Ошибки поллинга не должны ронять процесс.
   bot.on('polling_error', (err) => logger.error({ err: err.message }, 'Ошибка Telegram polling'));
@@ -121,7 +134,18 @@ function upgradeKeyboard(lang: Lang): TelegramBot.InlineKeyboardMarkup {
   return { inline_keyboard: [[{ text: t('upgrade_button', lang), callback_data: 'upgrade' }]] };
 }
 
-/** Запускает оплату Pro: Telegram Stars (приоритет) либо внешний чекаут LemonSqueezy. */
+/** Клавиатура выбора плана: месяц (с промо) или год (выгоднее). */
+function planChoiceKeyboard(lang: Lang): TelegramBot.InlineKeyboardMarkup {
+  const month = promoActive() ? config.proStarsPromo : config.proStarsPrice;
+  return {
+    inline_keyboard: [
+      [{ text: t('plan_btn_month', lang, { price: String(month) }), callback_data: 'buy:month' }],
+      [{ text: t('plan_btn_year', lang, { price: String(config.proStarsPriceYear) }), callback_data: 'buy:year' }],
+    ],
+  };
+}
+
+/** Показывает оффер Pro и выбор плана (или ведёт на внешний чекаут / сообщает, что оплата выключена). */
 async function startUpgrade(
   bot: TelegramBot,
   chatId: number,
@@ -134,17 +158,8 @@ async function startUpgrade(
   }
   if (starsEnabled()) {
     const banner = promoBanner(lang);
-    const desc =
-      (banner ? banner + '\n\n' : '') + t('pro_invoice_desc', lang, { days: String(config.proDurationDays) });
-    await bot.sendInvoice(
-      chatId,
-      t('pro_invoice_title', lang),
-      desc.slice(0, 255),
-      `pro_stars:${userId}`,
-      '', // для Stars provider_token пустой
-      'XTR',
-      [{ label: t('pro_invoice_title', lang), amount: proStarsAmount() }],
-    );
+    const text = t('upgrade_prompt', lang) + (banner ? `\n\n${banner}` : '');
+    await bot.sendMessage(chatId, text, { reply_markup: planChoiceKeyboard(lang) });
     return;
   }
   if (lemonEnabled()) {
@@ -154,6 +169,28 @@ async function startUpgrade(
     return;
   }
   await bot.sendMessage(chatId, t('billing_off', lang));
+}
+
+/** Выставляет счёт в Telegram Stars на выбранный период. */
+async function sendProInvoice(
+  bot: TelegramBot,
+  chatId: number,
+  userId: number,
+  lang: Lang,
+  period: BillingPeriod,
+): Promise<void> {
+  const days = daysFor(period);
+  const banner = period === 'month' ? promoBanner(lang) : '';
+  const desc = (banner ? banner + '\n\n' : '') + t('pro_invoice_desc', lang, { days: String(days) });
+  await bot.sendInvoice(
+    chatId,
+    t('pro_invoice_title', lang),
+    desc.slice(0, 255),
+    `pro_stars:${period}:${userId}`,
+    '', // для Stars provider_token пустой
+    'XTR',
+    [{ label: t('pro_invoice_title', lang), amount: priceFor(period) }],
+  );
 }
 
 /** Inline-клавиатура выбора режима голосовых ответов. */
@@ -182,10 +219,22 @@ async function handleCallback(
     return;
   }
 
-  // Кнопка «Оформить Pro».
+  // Кнопка «Оформить Pro» → показать выбор плана.
   if (data === 'upgrade') {
     await bot.answerCallbackQuery(query.id).catch(() => {});
     await startUpgrade(bot, chatId, userId, lang);
+    return;
+  }
+
+  // Выбор плана → выставляем счёт.
+  if (data === 'buy:month' || data === 'buy:year') {
+    await bot.answerCallbackQuery(query.id).catch(() => {});
+    if (isPro(userId)) {
+      await bot.sendMessage(chatId, t('already_pro', lang));
+      return;
+    }
+    const period: BillingPeriod = data === 'buy:year' ? 'year' : 'month';
+    await sendProInvoice(bot, chatId, userId, lang, period);
     return;
   }
 
@@ -274,10 +323,28 @@ async function handleMessage(bot: TelegramBot, msg: TelegramBot.Message): Promis
 
   // --- Успешная оплата Telegram Stars → выдаём Pro ---
   if (msg.successful_payment) {
-    const charge = msg.successful_payment.telegram_payment_charge_id ?? null;
-    grantProDays(userId, config.proDurationDays, 'stars', charge);
-    logger.info({ userId, charge }, 'Оплата Stars получена, Pro выдан');
+    const sp = msg.successful_payment;
+    const charge = sp.telegram_payment_charge_id ?? null;
+    const period: BillingPeriod = (sp.invoice_payload ?? '').includes(':year') ? 'year' : 'month';
+    grantProDays(userId, daysFor(period), 'stars', charge);
+    logger.info({ userId, charge, period }, 'Оплата Stars получена, Pro выдан');
     await bot.sendMessage(chatId, t('pro_activated', lang));
+
+    // Реферальный бонус: если этого юзера пригласили и бонус ещё не выдан —
+    // награждаем пригласившего (привязка к реальной оплате = защита от абьюза).
+    if (user.referred_by && !user.ref_rewarded) {
+      grantProDays(user.referred_by, config.referralBonusDays, 'referral_reward', String(userId));
+      usersRepo.markRefRewarded(userId);
+      const refUser = usersRepo.get(user.referred_by);
+      if (refUser) {
+        bot
+          .sendMessage(
+            refUser.chat_id,
+            t('referral_reward', refUser.language, { days: String(config.referralBonusDays) }),
+          )
+          .catch(() => {});
+      }
+    }
     return;
   }
 
@@ -409,11 +476,45 @@ async function handleCommand(
 
   switch (command) {
     case '/start': {
+      // Реферальная ссылка: /start ref_<id>. Привязываем пригласившего и,
+      // если это новый юзер, дарим пробный Pro (активация + рост).
+      const refMatch = arg?.match(/^ref_(\d+)$/);
+      if (refMatch && billingEnabled()) {
+        const refId = Number(refMatch[1]);
+        const me = usersRepo.get(userId);
+        const isNew = me && !me.referred_by && !me.trial_granted && refId !== userId;
+        if (isNew) {
+          usersRepo.setReferredBy(userId, refId);
+          grantProDays(userId, config.referralTrialDays, 'referral_trial', String(refId));
+          usersRepo.markTrialGranted(userId);
+          await bot.sendMessage(chatId, t('referral_welcome', lang, { days: String(config.referralTrialDays) }));
+        }
+      }
       const showConnect = isComposioConfigured() && availableApps().length > 0;
       await bot.sendMessage(
         chatId,
         t('welcome', lang),
         showConnect ? { reply_markup: connectKeyboard() } : undefined,
+      );
+      return;
+    }
+
+    case '/invite':
+    case '/ref': {
+      if (!billingEnabled()) {
+        await bot.sendMessage(chatId, t('billing_off', lang));
+        return;
+      }
+      const link = botUsername ? `https://t.me/${botUsername}?start=ref_${userId}` : '';
+      const count = usersRepo.countReferrals(userId);
+      await bot.sendMessage(
+        chatId,
+        t('invite_text', lang, {
+          link: link || '—',
+          count: String(count),
+          bonus: String(config.referralBonusDays),
+          trial: String(config.referralTrialDays),
+        }),
       );
       return;
     }

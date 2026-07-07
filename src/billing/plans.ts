@@ -23,6 +23,18 @@ export function proStarsAmount(): number {
   return promoActive() ? config.proStarsPromo : config.proStarsPrice;
 }
 
+export type BillingPeriod = 'month' | 'year';
+
+/** Цена в звёздах для выбранного периода (месяц учитывает промо). */
+export function priceFor(period: BillingPeriod): number {
+  return period === 'year' ? config.proStarsPriceYear : proStarsAmount();
+}
+
+/** На сколько дней даёт Pro выбранный период. */
+export function daysFor(period: BillingPeriod): number {
+  return period === 'year' ? config.proDurationDaysYear : config.proDurationDays;
+}
+
 /**
  * Включён ли биллинг хоть каким-то способом. Если нет — гейтинг ВЫКЛЮЧЕН: все
  * функции доступны без ограничений (режим до монетизации).

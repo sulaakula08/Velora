@@ -131,6 +131,10 @@ ensureColumn('users', 'username', 'username TEXT');
 ensureColumn('users', 'first_name', 'first_name TEXT');
 // Режим голосовых ответов: 'off' | 'reply' (только на голосовые) | 'always'.
 ensureColumn('users', 'voice_mode', "voice_mode TEXT NOT NULL DEFAULT 'off'");
+// Реферальная программа: кто пригласил, выдан ли реферу бонус, выдан ли триал.
+ensureColumn('users', 'referred_by', 'referred_by INTEGER');
+ensureColumn('users', 'ref_rewarded', 'ref_rewarded INTEGER NOT NULL DEFAULT 0');
+ensureColumn('users', 'trial_granted', 'trial_granted INTEGER NOT NULL DEFAULT 0');
 db.exec('CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)');
 
 /** Явная инициализация для точки входа: гарантирует загрузку модуля и пишет лог. */
