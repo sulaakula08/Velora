@@ -25,7 +25,23 @@ import {
   lemonEnabled,
   grantProDays,
   grantProUnlimited,
+  promoActive,
+  proStarsAmount,
 } from '../billing/plans';
+
+/** Зачёркивает текст (Unicode) — для «старой» цены в промо: 250 → 2̶5̶0̶. */
+function strike(s: string): string {
+  return s.split('').map((c) => c + '̶').join('');
+}
+
+/** Промо-баннер со скидкой (или пустая строка, если акции нет). */
+function promoBanner(lang: Lang): string {
+  if (!promoActive()) return '';
+  return t('promo_banner', lang, {
+    old: strike(String(config.proStarsPrice)),
+    promo: String(config.proStarsPromo),
+  });
+}
 
 export function createBot(): TelegramBot {
   const options: TelegramBot.ConstructorOptions = { polling: true };
@@ -117,14 +133,17 @@ async function startUpgrade(
     return;
   }
   if (starsEnabled()) {
+    const banner = promoBanner(lang);
+    const desc =
+      (banner ? banner + '\n\n' : '') + t('pro_invoice_desc', lang, { days: String(config.proDurationDays) });
     await bot.sendInvoice(
       chatId,
       t('pro_invoice_title', lang),
-      t('pro_invoice_desc', lang, { days: String(config.proDurationDays) }),
+      desc.slice(0, 255),
       `pro_stars:${userId}`,
       '', // для Stars provider_token пустой
       'XTR',
-      [{ label: t('pro_invoice_title', lang), amount: config.proStarsPrice }],
+      [{ label: t('pro_invoice_title', lang), amount: proStarsAmount() }],
     );
     return;
   }
@@ -299,9 +318,11 @@ async function handleMessage(bot: TelegramBot, msg: TelegramBot.Message): Promis
   // Лимит бесплатного тарифа: если исчерпан — предлагаем оформить Pro.
   const usage = checkDailyLimit(userId);
   if (usage.exceeded) {
+    const banner = promoBanner(lang);
+    const text = t('limit_reached', lang, { limit: String(usage.limit) }) + (banner ? `\n\n${banner}` : '');
     await bot.sendMessage(
       chatId,
-      t('limit_reached', lang, { limit: String(usage.limit) }),
+      text,
       billingEnabled() ? { reply_markup: upgradeKeyboard(lang) } : undefined,
     );
     return;
@@ -459,9 +480,13 @@ async function handleCommand(
         await bot.sendMessage(chatId, t('plan_pro', lang));
       } else {
         const usage = checkDailyLimit(userId);
+        const banner = promoBanner(lang);
+        const text =
+          t('plan_free', lang, { used: String(usage.used), limit: String(usage.limit) }) +
+          (banner ? `\n\n${banner}` : '');
         await bot.sendMessage(
           chatId,
-          t('plan_free', lang, { used: String(usage.used), limit: String(usage.limit) }),
+          text,
           billingEnabled() ? { reply_markup: upgradeKeyboard(lang) } : undefined,
         );
       }

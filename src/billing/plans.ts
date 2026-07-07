@@ -13,6 +13,16 @@ export function starsEnabled(): boolean {
   return config.proStarsEnabled && config.proStarsPrice > 0;
 }
 
+/** Активна ли промо-скидка на Pro. */
+export function promoActive(): boolean {
+  return config.proStarsPromo > 0 && config.proStarsPromo < config.proStarsPrice;
+}
+
+/** Фактическая цена Pro в звёздах с учётом акции. */
+export function proStarsAmount(): number {
+  return promoActive() ? config.proStarsPromo : config.proStarsPrice;
+}
+
 /**
  * Включён ли биллинг хоть каким-то способом. Если нет — гейтинг ВЫКЛЮЧЕН: все
  * функции доступны без ограничений (режим до монетизации).

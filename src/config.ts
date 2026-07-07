@@ -53,7 +53,9 @@ export const config = {
   freeMaxIntegrations: parseInt(process.env.FREE_MAX_INTEGRATIONS || '1', 10),
   // Telegram Stars — оплата Pro прямо в боте (по умолчанию включено).
   proStarsEnabled: (process.env.PRO_STARS_ENABLED ?? 'true').trim() !== 'false',
-  proStarsPrice: parseInt(process.env.PRO_STARS_PRICE || '250', 10), // цена Pro в звёздах
+  proStarsPrice: parseInt(process.env.PRO_STARS_PRICE || '250', 10), // обычная цена Pro в звёздах
+  // Промо-цена (акция на запуске). Если 0 или >= обычной — акции нет.
+  proStarsPromo: parseInt(process.env.PRO_STARS_PROMO || '10', 10),
   proDurationDays: parseInt(process.env.PRO_DURATION_DAYS || '30', 10), // на сколько дней даёт Pro
   // Пароль, которым админы включают Pro бесплатно (/admin <пароль>).
   adminPassword: process.env.ADMIN_PASSWORD?.trim() || 'velora_admin',
