@@ -2,7 +2,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import { config } from '../config';
 import { logger } from '../logger';
 import { t, detectLang, type Lang } from '../i18n/i18n';
-import { usersRepo, messagesRepo, composioRepo, type VoiceMode } from '../db/repositories';
+import { usersRepo, messagesRepo, composioRepo, subscriptionsRepo, type VoiceMode } from '../db/repositories';
 import { runAgent } from '../ai/agent';
 import { synthesizeVoice } from '../ai/tts';
 import { fetchStarInfo } from '../billing/starsBalance';
@@ -573,6 +573,41 @@ async function handleCommand(
       } else {
         await bot.sendMessage(chatId, t('admin_denied', lang));
       }
+      return;
+    }
+
+    case '/revoke': {
+      // Админ сбрасывает Pro пользователю: /revoke <пароль> @username
+      const parts = text.trim().split(/\s+/);
+      const pass = parts[1];
+      const uname = (parts[2] || '').replace(/^@/, '');
+      if (pass !== config.adminPassword) {
+        await bot.sendMessage(chatId, t('admin_denied', lang));
+        return;
+      }
+      if (!uname) {
+        await bot.sendMessage(chatId, t('revoke_usage', lang));
+        return;
+      }
+      const target = usersRepo.findByUsername(uname);
+      if (!target) {
+        await bot.sendMessage(chatId, t('revoke_no_user', lang, { user: `@${uname}` }));
+        return;
+      }
+      subscriptionsRepo.setStatus(target.user_id, 'cancelled');
+      await bot.sendMessage(chatId, t('revoke_done', lang, { user: `@${uname}` }));
+      bot.sendMessage(target.chat_id, t('pro_ended', target.language)).catch(() => {});
+      return;
+    }
+
+    case '/cancel': {
+      // Пользователь отменяет собственный Pro.
+      if (getPlan(userId) !== 'pro') {
+        await bot.sendMessage(chatId, t('cancel_none', lang));
+        return;
+      }
+      subscriptionsRepo.setStatus(userId, 'cancelled');
+      await bot.sendMessage(chatId, t('cancel_done', lang));
       return;
     }
 
