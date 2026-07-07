@@ -5,6 +5,7 @@ import { saveNoteTool, listNotesTool } from './notes';
 import { saveContactNoteTool, getContactInfoTool } from './contacts';
 import { saveRecapTool } from './recap';
 import { webSearchTool } from './websearch';
+import { findPlacesTool } from './places';
 import { rememberAboutMeTool, getAboutMeTool, forgetAboutMeTool } from './profile';
 import { addTaskTool, listTasksTool, completeTaskTool } from './tasks';
 import { sendToPersonTool } from './messaging';
@@ -26,6 +27,7 @@ export const tools: Tool[] = [
   getContactInfoTool,
   saveRecapTool,
   webSearchTool,
+  findPlacesTool,
   rememberAboutMeTool,
   getAboutMeTool,
   forgetAboutMeTool,
