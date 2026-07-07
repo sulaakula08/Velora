@@ -46,6 +46,13 @@ export const scheduleMessageTool: Tool = {
     }
     if (channel === 'email' && !target.includes('@')) return 'Для email нужен корректный адрес получателя.';
 
+    // Если получатель задан явно вместе с именем — запоминаем контакт, чтобы
+    // в следующий раз можно было писать просто по имени, не диктуя адрес.
+    if (input.to && input.contact_name) {
+      if (channel === 'email') contactsRepo.setDetails(ctx.userId, input.contact_name, target);
+      else contactsRepo.setDetails(ctx.userId, input.contact_name, undefined, target);
+    }
+
     scheduledRepo.create({
       userId: ctx.userId,
       chatId: ctx.chatId,
