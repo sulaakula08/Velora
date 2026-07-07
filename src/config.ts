@@ -58,7 +58,7 @@ export const config = {
   proStarsEnabled: (process.env.PRO_STARS_ENABLED ?? 'true').trim() !== 'false',
   proStarsPrice: parseInt(process.env.PRO_STARS_PRICE || '250', 10), // цена Pro/месяц в звёздах
   // Промо-цена (акция на запуске). Если 0 или >= обычной — акции нет.
-  proStarsPromo: parseInt(process.env.PRO_STARS_PROMO || '10', 10),
+  proStarsPromo: parseInt(process.env.PRO_STARS_PROMO || '30', 10),
   proDurationDays: parseInt(process.env.PRO_DURATION_DAYS || '30', 10), // длительность месячного Pro
   // Годовой план: дешевле в пересчёте на месяц, даёт кэш вперёд и режет отток.
   proStarsPriceYear: parseInt(process.env.PRO_STARS_PRICE_YEAR || '2000', 10),
