@@ -5,6 +5,7 @@ import { t, detectLang, type Lang } from '../i18n/i18n';
 import { usersRepo, messagesRepo, composioRepo, type VoiceMode } from '../db/repositories';
 import { runAgent } from '../ai/agent';
 import { synthesizeVoice } from '../ai/tts';
+import { fetchStarInfo } from '../billing/starsBalance';
 import { collectMedia, type CollectedMedia } from './media';
 import type { ToolContext } from '../tools/types';
 import {
@@ -572,6 +573,18 @@ async function handleCommand(
       } else {
         await bot.sendMessage(chatId, t('admin_denied', lang));
       }
+      return;
+    }
+
+    case '/stars': {
+      // Баланс звёзд бота — только по админ-паролю (/stars <пароль>).
+      if (arg !== config.adminPassword) {
+        await bot.sendMessage(chatId, t('admin_denied', lang));
+        return;
+      }
+      await bot.sendChatAction(chatId, 'typing').catch(() => {});
+      const info = await fetchStarInfo();
+      await bot.sendMessage(chatId, info);
       return;
     }
 
