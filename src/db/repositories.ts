@@ -207,6 +207,56 @@ export const remindersRepo = {
   },
 };
 
+// ---------- scheduled_messages (отложенная отправка сообщений/писем) ----------
+
+export interface ScheduledMessage {
+  id: number;
+  user_id: number;
+  chat_id: number;
+  channel: 'telegram' | 'email';
+  target: string;
+  subject: string | null;
+  body: string;
+  send_at: number;
+}
+
+const stmtCreateScheduled = db.prepare(
+  `INSERT INTO scheduled_messages (user_id, chat_id, channel, target, subject, body, send_at, created_at)
+   VALUES (@userId, @chatId, @channel, @target, @subject, @body, @sendAt, @now)`,
+);
+const stmtDueScheduled = db.prepare(
+  `SELECT id, user_id, chat_id, channel, target, subject, body, send_at
+   FROM scheduled_messages WHERE sent = 0 AND send_at <= ? ORDER BY send_at ASC`,
+);
+const stmtMarkScheduledSent = db.prepare(`UPDATE scheduled_messages SET sent = 1 WHERE id = ?`);
+const stmtListScheduled = db.prepare(
+  `SELECT id, user_id, chat_id, channel, target, subject, body, send_at
+   FROM scheduled_messages WHERE user_id = ? AND sent = 0 ORDER BY send_at ASC LIMIT ?`,
+);
+
+export const scheduledRepo = {
+  create(msg: {
+    userId: number;
+    chatId: number;
+    channel: 'telegram' | 'email';
+    target: string;
+    subject: string | null;
+    body: string;
+    sendAt: number;
+  }): void {
+    stmtCreateScheduled.run({ ...msg, now: Date.now() });
+  },
+  getDue(now: number): ScheduledMessage[] {
+    return stmtDueScheduled.all(now) as ScheduledMessage[];
+  },
+  markSent(id: number): void {
+    stmtMarkScheduledSent.run(id);
+  },
+  listPending(userId: number, limit = 20): ScheduledMessage[] {
+    return stmtListScheduled.all(userId, limit) as ScheduledMessage[];
+  },
+};
+
 // ---------- notes (общие заметки без времени) ----------
 
 const stmtAddNote = db.prepare(
@@ -240,6 +290,23 @@ const stmtAddContactNote = db.prepare(
 const stmtGetContactNotes = db.prepare(
   `SELECT note, created_at FROM contact_notes WHERE contact_id = ? ORDER BY id ASC`,
 );
+const stmtGetContactRow = db.prepare(
+  `SELECT id, name, email, telegram_username FROM contacts
+   WHERE user_id = ? AND unicode_lower(name) = unicode_lower(?)`,
+);
+const stmtUpdateContactDetails = db.prepare(
+  `UPDATE contacts SET
+     email = COALESCE(@email, email),
+     telegram_username = COALESCE(@username, telegram_username)
+   WHERE id = @id`,
+);
+
+export interface ContactDetails {
+  id: number;
+  name: string;
+  email: string | null;
+  telegram_username: string | null;
+}
 
 export const contactsRepo = {
   /** Находит контакт по имени (без учёта регистра) или создаёт новый; возвращает id. */
@@ -258,6 +325,19 @@ export const contactsRepo = {
     const row = stmtGetContact.get(userId, name.trim()) as { id: number } | undefined;
     if (!row) return [];
     return stmtGetContactNotes.all(row.id) as { note: string; created_at: number }[];
+  },
+  /** Сохраняет/обновляет почту и/или Telegram-ник контакта (создаёт при отсутствии). */
+  setDetails(userId: number, name: string, email?: string, username?: string): void {
+    const id = this.ensure(userId, name);
+    stmtUpdateContactDetails.run({
+      id,
+      email: email?.trim() || null,
+      username: username?.trim().replace(/^@/, '') || null,
+    });
+  },
+  /** Возвращает контакт с почтой и ником по имени (или undefined). */
+  getDetails(userId: number, name: string): ContactDetails | undefined {
+    return stmtGetContactRow.get(userId, name.trim()) as ContactDetails | undefined;
   },
 };
 

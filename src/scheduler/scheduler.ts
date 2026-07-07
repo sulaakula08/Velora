@@ -1,10 +1,11 @@
 import cron from 'node-cron';
 import type TelegramBot from 'node-telegram-bot-api';
-import { remindersRepo, tasksRepo, usersRepo } from '../db/repositories';
+import { remindersRepo, tasksRepo, usersRepo, scheduledRepo } from '../db/repositories';
 import { buildBriefing } from './briefing';
 import { t } from '../i18n/i18n';
 import { config } from '../config';
 import { logger } from '../logger';
+import { executeComposioRaw } from '../integrations/composio/tools';
 
 /** Локальные дата/час/минута в заданном часовом поясе. */
 function localParts(tz: string): { date: string; hour: number; minute: number } {
@@ -31,10 +32,48 @@ export function startScheduler(bot: TelegramBot): void {
   cron.schedule('* * * * *', async () => {
     await sendDueReminders(bot);
     await sendDueFollowUps(bot);
+    await sendDueScheduledMessages(bot);
     await sendBriefings(bot);
   });
 
-  logger.info('Планировщик запущен: напоминания, follow-up, брифинги (раз в минуту)');
+  logger.info('Планировщик запущен: напоминания, follow-up, отложенные отправки, брифинги (раз в минуту)');
+}
+
+/** Отправляет запланированные пользователем сообщения/письма, у которых наступило время. */
+async function sendDueScheduledMessages(bot: TelegramBot): Promise<void> {
+  let due;
+  try {
+    due = scheduledRepo.getDue(Date.now());
+  } catch (err) {
+    logger.error({ err }, 'Ошибка чтения отложенных сообщений');
+    return;
+  }
+
+  for (const m of due) {
+    const owner = usersRepo.get(m.user_id);
+    const lang = owner?.language ?? 'ru';
+    try {
+      if (m.channel === 'telegram') {
+        const username = m.target.replace(/^@/, '');
+        const target = usersRepo.findByUsername(username);
+        if (!target?.chat_id) throw new Error(`получатель @${username} не в Velora`);
+        const sender = owner?.username ? `@${owner.username}` : owner?.first_name || 'Пользователь';
+        await bot.sendMessage(target.chat_id, t('relayed_message', target.language, { sender, message: m.body }));
+      } else {
+        await executeComposioRaw(m.user_id, 'GMAIL_SEND_EMAIL', {
+          recipient_email: m.target,
+          subject: m.subject || '(без темы)',
+          body: m.body,
+        });
+      }
+      scheduledRepo.markSent(m.id);
+      await bot.sendMessage(m.chat_id, t('scheduled_sent', lang, { target: m.target })).catch(() => {});
+    } catch (err) {
+      logger.error({ err, id: m.id }, 'Не удалось отправить отложенное сообщение');
+      scheduledRepo.markSent(m.id); // не зацикливаемся на битой записи
+      await bot.sendMessage(m.chat_id, t('scheduled_failed', lang, { target: m.target })).catch(() => {});
+    }
+  }
 }
 
 async function sendDueReminders(bot: TelegramBot): Promise<void> {

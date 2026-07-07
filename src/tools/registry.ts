@@ -9,6 +9,7 @@ import { findPlacesTool } from './places';
 import { rememberAboutMeTool, getAboutMeTool, forgetAboutMeTool } from './profile';
 import { addTaskTool, listTasksTool, completeTaskTool } from './tasks';
 import { sendToPersonTool } from './messaging';
+import { scheduleMessageTool } from './schedule';
 // Родные Google-тулзы (calendar.ts/gmail.ts) отключены: работа с Gmail и
 // Календарём идёт через Composio (см. integrations/composio). Оставлены в коде
 // на случай возврата к собственному Google OAuth.
@@ -35,6 +36,7 @@ export const tools: Tool[] = [
   listTasksTool,
   completeTaskTool,
   sendToPersonTool,
+  scheduleMessageTool,
 ];
 
 /** Быстрый доступ к инструменту по имени (для обработки function calls). */

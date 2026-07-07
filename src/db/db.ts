@@ -95,6 +95,20 @@ CREATE TABLE IF NOT EXISTS google_tokens (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS scheduled_messages (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL,
+  chat_id    INTEGER NOT NULL,
+  channel    TEXT    NOT NULL,           -- 'telegram' | 'email'
+  target     TEXT    NOT NULL,           -- @username или email
+  subject    TEXT,
+  body       TEXT    NOT NULL,
+  send_at    INTEGER NOT NULL,
+  sent       INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sched_due ON scheduled_messages(sent, send_at);
+
 CREATE TABLE IF NOT EXISTS subscriptions (
   user_id            INTEGER PRIMARY KEY,
   status             TEXT    NOT NULL DEFAULT 'active',
@@ -135,6 +149,9 @@ ensureColumn('users', 'voice_mode', "voice_mode TEXT NOT NULL DEFAULT 'off'");
 ensureColumn('users', 'referred_by', 'referred_by INTEGER');
 ensureColumn('users', 'ref_rewarded', 'ref_rewarded INTEGER NOT NULL DEFAULT 0');
 ensureColumn('users', 'trial_granted', 'trial_granted INTEGER NOT NULL DEFAULT 0');
+// Контакты: почта и Telegram-ник, чтобы обращаться по имени и не диктовать каждый раз.
+ensureColumn('contacts', 'email', 'email TEXT');
+ensureColumn('contacts', 'telegram_username', 'telegram_username TEXT');
 db.exec('CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)');
 
 /** Явная инициализация для точки входа: гарантирует загрузку модуля и пишет лог. */
