@@ -1,5 +1,5 @@
 import type { Tool } from './types';
-import { scheduledRepo, contactsRepo } from '../db/repositories';
+import { scheduledRepo, contactsRepo, channelsRepo } from '../db/repositories';
 
 function fmt(iso: string, tz: string): string {
   const d = new Date(iso);
@@ -13,14 +13,15 @@ export const scheduleMessageTool: Tool = {
     'Запланировать отправку сообщения или письма на будущее время (не сейчас). Вызывай на «отправь Ержану в 21:00», ' +
     '«напиши Айгуль завтра в 9 утра», «отправь это письмо вечером». Канал: telegram (получатель — пользователь Velora ' +
     'по @username) или email (по адресу). Получателя можно указать именем сохранённого контакта — почта/ник подтянутся сами. ' +
-    'Всегда сначала покажи пользователю текст и время и получи подтверждение, а потом вызывай инструмент.',
+    'Может и запланировать пост в канал/группу (channel = channel). Всегда сначала покажи пользователю текст и время ' +
+    'и получи подтверждение, а потом вызывай инструмент.',
   input_schema: {
     type: 'object',
     properties: {
       send_at: { type: 'string', description: 'Когда отправить, ISO 8601 со смещением +05:00, напр. 2026-07-07T21:00:00+05:00.' },
-      channel: { type: 'string', enum: ['telegram', 'email'], description: 'Канал доставки.' },
+      channel: { type: 'string', enum: ['telegram', 'email', 'channel'], description: 'Канал доставки: telegram (лично юзеру Velora), email или channel (пост в канал/группу).' },
       contact_name: { type: 'string', description: 'Имя сохранённого контакта — почта/@username подтянутся автоматически. Необязательно.' },
-      to: { type: 'string', description: 'Явный получатель: @username (telegram) или email. Необязательно, если задан contact_name.' },
+      to: { type: 'string', description: 'Явный получатель: @username (telegram), email, или @канал/название (channel). Необязательно, если задан contact_name.' },
       subject: { type: 'string', description: 'Тема письма (только для email).' },
       body: { type: 'string', description: 'Текст сообщения/письма.' },
     },
@@ -31,18 +32,23 @@ export const scheduleMessageTool: Tool = {
     if (Number.isNaN(when.getTime())) return 'Не удалось разобрать время отправки. Уточни дату и время.';
     if (when.getTime() < Date.now() - 60_000) return 'Это время уже в прошлом. Уточни, когда именно отправить.';
 
-    const channel = input.channel === 'email' ? 'email' : 'telegram';
+    const channel: 'telegram' | 'email' | 'channel' =
+      input.channel === 'email' ? 'email' : input.channel === 'channel' ? 'channel' : 'telegram';
 
-    // Определяем получателя: явный `to` или подтягиваем из сохранённого контакта.
+    // Определяем получателя: явный `to`, сохранённый контакт или сохранённый канал.
     let target = input.to?.trim() || '';
-    if (!target && input.contact_name) {
+    if (!target && input.contact_name && channel !== 'channel') {
       const c = contactsRepo.getDetails(ctx.userId, input.contact_name);
       if (c) target = channel === 'email' ? c.email || '' : c.telegram_username ? `@${c.telegram_username}` : '';
     }
+    if (channel === 'channel' && target && !target.startsWith('@') && !/^-?\d+$/.test(target)) {
+      const found = channelsRepo.find(ctx.userId, target);
+      if (found) target = found.ref;
+    }
 
     if (!target) {
-      const what = channel === 'email' ? 'email' : '@username';
-      return `Не знаю, куда отправить (${what}). Попроси пользователя указать получателя или сохранить контакт с этими данными.`;
+      const what = channel === 'email' ? 'email' : channel === 'channel' ? '@канал' : '@username';
+      return `Не знаю, куда отправить (${what}). Попроси пользователя указать получателя или сохранить контакт/канал.`;
     }
     if (channel === 'email' && !target.includes('@')) return 'Для email нужен корректный адрес получателя.';
 

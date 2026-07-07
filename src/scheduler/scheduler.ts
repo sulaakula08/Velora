@@ -53,7 +53,10 @@ async function sendDueScheduledMessages(bot: TelegramBot): Promise<void> {
     const owner = usersRepo.get(m.user_id);
     const lang = owner?.language ?? 'ru';
     try {
-      if (m.channel === 'telegram') {
+      if (m.channel === 'channel') {
+        // Пост в канал/группу (бот должен быть админом). target — @username или id.
+        await bot.sendMessage(m.target, m.body);
+      } else if (m.channel === 'telegram') {
         const username = m.target.replace(/^@/, '');
         const target = usersRepo.findByUsername(username);
         if (!target?.chat_id) throw new Error(`получатель @${username} не в Velora`);

@@ -95,6 +95,15 @@ CREATE TABLE IF NOT EXISTS google_tokens (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS channels (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL,
+  ref        TEXT    NOT NULL,           -- @username или числовой id канала/группы
+  title      TEXT,
+  created_at INTEGER NOT NULL,
+  UNIQUE(user_id, ref)
+);
+
 CREATE TABLE IF NOT EXISTS scheduled_messages (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id    INTEGER NOT NULL,

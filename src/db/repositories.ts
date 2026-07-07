@@ -213,7 +213,7 @@ export interface ScheduledMessage {
   id: number;
   user_id: number;
   chat_id: number;
-  channel: 'telegram' | 'email';
+  channel: 'telegram' | 'email' | 'channel';
   target: string;
   subject: string | null;
   body: string;
@@ -238,7 +238,7 @@ export const scheduledRepo = {
   create(msg: {
     userId: number;
     chatId: number;
-    channel: 'telegram' | 'email';
+    channel: 'telegram' | 'email' | 'channel';
     target: string;
     subject: string | null;
     body: string;
@@ -254,6 +254,37 @@ export const scheduledRepo = {
   },
   listPending(userId: number, limit = 20): ScheduledMessage[] {
     return stmtListScheduled.all(userId, limit) as ScheduledMessage[];
+  },
+};
+
+// ---------- channels (каналы/группы пользователя для постинга) ----------
+
+export interface ChannelRow {
+  ref: string;
+  title: string | null;
+}
+
+const stmtAddChannel = db.prepare(
+  `INSERT INTO channels (user_id, ref, title, created_at) VALUES (@userId, @ref, @title, @now)
+   ON CONFLICT(user_id, ref) DO UPDATE SET title = COALESCE(@title, title)`,
+);
+const stmtListChannels = db.prepare(
+  `SELECT ref, title FROM channels WHERE user_id = ? ORDER BY id DESC`,
+);
+
+export const channelsRepo = {
+  add(userId: number, ref: string, title?: string): void {
+    stmtAddChannel.run({ userId, ref: ref.trim(), title: title?.trim() || null, now: Date.now() });
+  },
+  list(userId: number): ChannelRow[] {
+    return stmtListChannels.all(userId) as ChannelRow[];
+  },
+  /** Ищет канал по ref или по части названия (без учёта регистра). */
+  find(userId: number, query: string): ChannelRow | undefined {
+    const q = query.trim().toLowerCase().replace(/^@/, '');
+    return this.list(userId).find(
+      (c) => c.ref.toLowerCase().replace(/^@/, '') === q || (c.title ?? '').toLowerCase().includes(q),
+    );
   },
 };
 

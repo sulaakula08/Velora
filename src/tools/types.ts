@@ -13,8 +13,8 @@ export interface ToolContext {
   senderName: string;
   /** @username отправителя, если есть. */
   senderUsername?: string;
-  /** Отправить сообщение в произвольный чат Telegram (инструмент не знает про Telegram-библиотеку). */
-  sendTo(chatId: number, text: string): Promise<void>;
+  /** Отправить сообщение в произвольный чат/канал Telegram (id или @username). */
+  sendTo(chatId: number | string, text: string): Promise<void>;
 }
 
 /**
