@@ -21,6 +21,10 @@ import {
   canConnectMore,
   checkoutUrlFor,
   billingEnabled,
+  starsEnabled,
+  lemonEnabled,
+  grantProDays,
+  grantProUnlimited,
 } from '../billing/plans';
 
 export function createBot(): TelegramBot {
@@ -50,6 +54,13 @@ export function createBot(): TelegramBot {
     handleCallback(bot, query).catch((err) => {
       logger.error({ err }, 'Необработанная ошибка в обработчике кнопки');
     });
+  });
+
+  // Оплата Telegram Stars: подтверждаем pre-checkout (обязательно в течение 10 сек).
+  bot.on('pre_checkout_query', (q) => {
+    bot.answerPreCheckoutQuery(q.id, true).catch((err) =>
+      logger.error({ err }, 'Ошибка ответа на pre_checkout_query'),
+    );
   });
 
   logger.info('Telegram-бот запущен (long polling)');
@@ -89,11 +100,41 @@ function disconnectKeyboard(userId: number): TelegramBot.InlineKeyboardMarkup {
   return { inline_keyboard: rows };
 }
 
-/** Inline-кнопка перехода к оплате Pro (ссылка с привязкой к Telegram-аккаунту). */
-function upgradeKeyboard(userId: number, lang: Lang): TelegramBot.InlineKeyboardMarkup {
-  return {
-    inline_keyboard: [[{ text: t('upgrade_button', lang), url: checkoutUrlFor(userId) }]],
-  };
+/** Inline-кнопка «Оформить Pro» — по нажатию запускается оплата (Stars/ссылка). */
+function upgradeKeyboard(lang: Lang): TelegramBot.InlineKeyboardMarkup {
+  return { inline_keyboard: [[{ text: t('upgrade_button', lang), callback_data: 'upgrade' }]] };
+}
+
+/** Запускает оплату Pro: Telegram Stars (приоритет) либо внешний чекаут LemonSqueezy. */
+async function startUpgrade(
+  bot: TelegramBot,
+  chatId: number,
+  userId: number,
+  lang: Lang,
+): Promise<void> {
+  if (isPro(userId)) {
+    await bot.sendMessage(chatId, t('already_pro', lang));
+    return;
+  }
+  if (starsEnabled()) {
+    await bot.sendInvoice(
+      chatId,
+      t('pro_invoice_title', lang),
+      t('pro_invoice_desc', lang, { days: String(config.proDurationDays) }),
+      `pro_stars:${userId}`,
+      '', // для Stars provider_token пустой
+      'XTR',
+      [{ label: t('pro_invoice_title', lang), amount: config.proStarsPrice }],
+    );
+    return;
+  }
+  if (lemonEnabled()) {
+    await bot.sendMessage(chatId, t('upgrade_prompt', lang), {
+      reply_markup: { inline_keyboard: [[{ text: t('upgrade_button', lang), url: checkoutUrlFor(userId) }]] },
+    });
+    return;
+  }
+  await bot.sendMessage(chatId, t('billing_off', lang));
 }
 
 /** Inline-клавиатура выбора режима голосовых ответов. */
@@ -119,6 +160,13 @@ async function handleCallback(
 
   if (!chatId) {
     await bot.answerCallbackQuery(query.id).catch(() => {});
+    return;
+  }
+
+  // Кнопка «Оформить Pro».
+  if (data === 'upgrade') {
+    await bot.answerCallbackQuery(query.id).catch(() => {});
+    await startUpgrade(bot, chatId, userId, lang);
     return;
   }
 
@@ -168,7 +216,7 @@ async function handleCallback(
     await bot.sendMessage(
       chatId,
       t('connect_limit', lang, { limit: String(config.freeMaxIntegrations) }),
-      billingEnabled() ? { reply_markup: upgradeKeyboard(userId, lang) } : undefined,
+      billingEnabled() ? { reply_markup: upgradeKeyboard(lang) } : undefined,
     );
     return;
   }
@@ -204,6 +252,15 @@ async function handleMessage(bot: TelegramBot, msg: TelegramBot.Message): Promis
 
   const user = usersRepo.ensure(userId, chatId, msg.from?.username, msg.from?.first_name);
   let lang = user.language;
+
+  // --- Успешная оплата Telegram Stars → выдаём Pro ---
+  if (msg.successful_payment) {
+    const charge = msg.successful_payment.telegram_payment_charge_id ?? null;
+    grantProDays(userId, config.proDurationDays, 'stars', charge);
+    logger.info({ userId, charge }, 'Оплата Stars получена, Pro выдан');
+    await bot.sendMessage(chatId, t('pro_activated', lang));
+    return;
+  }
 
   // --- Команды (только для текстовых сообщений) ---
   const commandText = msg.text?.trim();
@@ -245,7 +302,7 @@ async function handleMessage(bot: TelegramBot, msg: TelegramBot.Message): Promis
     await bot.sendMessage(
       chatId,
       t('limit_reached', lang, { limit: String(usage.limit) }),
-      billingEnabled() ? { reply_markup: upgradeKeyboard(userId, lang) } : undefined,
+      billingEnabled() ? { reply_markup: upgradeKeyboard(lang) } : undefined,
     );
     return;
   }
@@ -381,17 +438,18 @@ async function handleCommand(
 
     case '/upgrade':
     case '/pro': {
-      if (!billingEnabled()) {
-        await bot.sendMessage(chatId, t('billing_off', lang));
-        return;
+      await startUpgrade(bot, chatId, userId, lang);
+      return;
+    }
+
+    case '/admin': {
+      // Активация Pro бесплатно по паролю (для админов).
+      if (arg && arg === config.adminPassword) {
+        grantProUnlimited(userId, 'admin');
+        await bot.sendMessage(chatId, t('admin_pro_granted', lang));
+      } else {
+        await bot.sendMessage(chatId, t('admin_denied', lang));
       }
-      if (isPro(userId)) {
-        await bot.sendMessage(chatId, t('already_pro', lang));
-        return;
-      }
-      await bot.sendMessage(chatId, t('upgrade_prompt', lang), {
-        reply_markup: upgradeKeyboard(userId, lang),
-      });
       return;
     }
 
@@ -404,7 +462,7 @@ async function handleCommand(
         await bot.sendMessage(
           chatId,
           t('plan_free', lang, { used: String(usage.used), limit: String(usage.limit) }),
-          billingEnabled() ? { reply_markup: upgradeKeyboard(userId, lang) } : undefined,
+          billingEnabled() ? { reply_markup: upgradeKeyboard(lang) } : undefined,
         );
       }
       return;
@@ -414,7 +472,7 @@ async function handleCommand(
       // Голосовые ответы — функция Pro.
       if (billingEnabled() && !isPro(userId)) {
         await bot.sendMessage(chatId, t('voice_pro_only', lang), {
-          reply_markup: upgradeKeyboard(userId, lang),
+          reply_markup: upgradeKeyboard(lang),
         });
         return;
       }
@@ -458,7 +516,7 @@ async function handleCommand(
         await bot.sendMessage(
           chatId,
           t('connect_limit', lang, { limit: String(config.freeMaxIntegrations) }),
-          billingEnabled() ? { reply_markup: upgradeKeyboard(userId, lang) } : undefined,
+          billingEnabled() ? { reply_markup: upgradeKeyboard(lang) } : undefined,
         );
         return;
       }

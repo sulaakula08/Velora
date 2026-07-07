@@ -3,13 +3,38 @@ import { subscriptionsRepo, messagesRepo, composioRepo } from '../db/repositorie
 
 export type Plan = 'free' | 'pro';
 
+/** Настроена ли оплата через LemonSqueezy (внешний чекаут картой). */
+export function lemonEnabled(): boolean {
+  return Boolean(config.lemonWebhookSecret && config.lemonCheckoutUrl);
+}
+
+/** Включена ли оплата Telegram Stars (внутри бота). */
+export function starsEnabled(): boolean {
+  return config.proStarsEnabled && config.proStarsPrice > 0;
+}
+
 /**
- * Включён ли биллинг. Если webhook-secret не задан — гейтинг ВЫКЛЮЧЕН: все
- * функции доступны без ограничений (режим до монетизации), чтобы не резать
- * существующих пользователей до запуска оплаты.
+ * Включён ли биллинг хоть каким-то способом. Если нет — гейтинг ВЫКЛЮЧЕН: все
+ * функции доступны без ограничений (режим до монетизации).
  */
 export function billingEnabled(): boolean {
-  return Boolean(config.lemonWebhookSecret && config.lemonCheckoutUrl);
+  return starsEnabled() || lemonEnabled();
+}
+
+/** Выдаёт Pro на N дней (продлевает от текущего конца периода, если он в будущем). */
+export function grantProDays(userId: number, days: number, provider: string, ref: string | null): void {
+  const current = subscriptionsRepo.get(userId);
+  const base =
+    current && current.status === 'active' && current.current_period_end && current.current_period_end > Date.now()
+      ? current.current_period_end
+      : Date.now();
+  const periodEnd = base + days * 24 * 60 * 60 * 1000;
+  subscriptionsRepo.activate(userId, { periodEnd, provider, ref });
+}
+
+/** Выдаёт Pro без срока (для админов). */
+export function grantProUnlimited(userId: number, provider: string): void {
+  subscriptionsRepo.activate(userId, { periodEnd: null, provider, ref: null });
 }
 
 /** Текущий тариф пользователя. Если биллинг выключен — всегда 'pro'. */

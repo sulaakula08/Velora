@@ -51,6 +51,12 @@ export const config = {
   // Лимиты бесплатного тарифа.
   freeDailyMessages: parseInt(process.env.FREE_DAILY_MESSAGES || '20', 10),
   freeMaxIntegrations: parseInt(process.env.FREE_MAX_INTEGRATIONS || '1', 10),
+  // Telegram Stars — оплата Pro прямо в боте (по умолчанию включено).
+  proStarsEnabled: (process.env.PRO_STARS_ENABLED ?? 'true').trim() !== 'false',
+  proStarsPrice: parseInt(process.env.PRO_STARS_PRICE || '250', 10), // цена Pro в звёздах
+  proDurationDays: parseInt(process.env.PRO_DURATION_DAYS || '30', 10), // на сколько дней даёт Pro
+  // Пароль, которым админы включают Pro бесплатно (/admin <пароль>).
+  adminPassword: process.env.ADMIN_PASSWORD?.trim() || 'velora_admin',
 } as const;
 
 function parseJsonMap(raw?: string): Record<string, string> {
