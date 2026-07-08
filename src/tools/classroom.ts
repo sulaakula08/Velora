@@ -4,6 +4,19 @@ import { logger } from '../logger';
 
 const API = 'https://classroom.googleapis.com/v1';
 
+/** Достаёт человекочитаемую причину ошибки из ответа/исключения Google API. */
+function errDetail(x: any): string {
+  const d = x?.response?.data ?? x?.data ?? x?.body ?? x;
+  const g = d?.error;
+  if (g?.message) return `${g.status || g.code || ''} ${g.message}`.trim();
+  if (typeof d === 'string') return d.slice(0, 300);
+  try {
+    return JSON.stringify(d).slice(0, 300);
+  } catch {
+    return x?.message ?? 'неизвестная ошибка';
+  }
+}
+
 /** Сырой вызов Google Classroom API через подключение пользователя в Composio. */
 async function proxy(userId: number, endpoint: string, method: string, body?: unknown): Promise<any> {
   const res: any = await (composio() as any).tools.proxyExecute({
@@ -11,7 +24,13 @@ async function proxy(userId: number, endpoint: string, method: string, body?: un
     userId: String(userId),
     data: { endpoint, method, ...(body !== undefined ? { body } : {}) },
   });
-  return res?.data ?? res?.body ?? res;
+  const data = res?.data ?? res?.body ?? res;
+  // Composio может не бросать исключение на 4xx — ловим ошибку в теле сами.
+  const status = res?.status ?? res?.statusCode ?? data?.status;
+  if ((typeof status === 'number' && status >= 400) || data?.error) {
+    throw new Error(errDetail(res));
+  }
+  return data;
 }
 
 const norm = (s: string) => s.trim().toLowerCase();
@@ -84,10 +103,9 @@ export const submitClassroomWorkTool: Tool = {
       const attached = input.link ? ` (прикрепила ссылку)` : '';
       return `Готово! Сдала задание «${work.title}» по курсу «${course.name}»${attached}. ✅`;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'ошибка Classroom';
+      const msg = err instanceof Error ? err.message : errDetail(err);
       logger.error({ err, userId: ctx.userId }, 'Ошибка сдачи работы в Classroom');
-      // Частая причина — у подключения нет права на запись (scope classroom.coursework.me).
-      return `Не удалось сдать работу: ${msg}. Возможно, у подключения Classroom нет прав на сдачу — тогда переподключи его с доступом на отправку заданий.`;
+      return `Не удалось сдать работу. Причина от Google: ${msg}`;
     }
   },
 };

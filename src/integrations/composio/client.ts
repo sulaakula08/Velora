@@ -73,5 +73,10 @@ export function availableApps(): SupportedApp[] {
 /** Находит поддерживаемое приложение по slug или части имени. */
 export function findApp(query: string): SupportedApp | undefined {
   const q = query.trim().toLowerCase();
-  return availableApps().find((a) => a.slug === q || a.name.toLowerCase().includes(q));
+  // Каноничный вид без разделителей: «googleclassroom» == «google_classroom».
+  const canon = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const qc = canon(q);
+  return availableApps().find(
+    (a) => canon(a.slug) === qc || a.slug === q || a.name.toLowerCase().includes(q),
+  );
 }
