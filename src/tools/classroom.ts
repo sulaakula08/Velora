@@ -44,6 +44,33 @@ async function classroomAccounts(userId: number): Promise<string[]> {
 
 const norm = (s: string) => s.trim().toLowerCase();
 
+export const listClassroomCoursesTool: Tool = {
+  name: 'list_classroom_courses',
+  description:
+    'Показать курсы пользователя в Google Classroom по ВСЕМ подключённым Google-аккаунтам (личный, школьный и т.п.). ' +
+    'Используй ЭТОТ инструмент для списка курсов вместо других — он видит все аккаунты, а не один. Вызывай на «мои курсы», ' +
+    '«какие у меня курсы», а также перед сдачей работы, чтобы точно найти нужный курс.',
+  input_schema: { type: 'object', properties: {} },
+  async execute(_input, ctx) {
+    try {
+      const accounts = await classroomAccounts(ctx.userId);
+      if (accounts.length === 0) return 'Google Classroom не подключён. Подключи через /connect.';
+      const lines: string[] = [];
+      for (const a of accounts) {
+        const prof = await proxy(a, `${API}/userProfiles/me`, 'GET').catch(() => null);
+        const who = prof?.name?.fullName || prof?.emailAddress || 'аккаунт';
+        const data = await proxy(a, `${API}/courses?courseStates=ACTIVE&pageSize=200`, 'GET');
+        const names = (data?.courses ?? []).map((c: any) => `• ${String(c.name ?? '').replace(/^"|"$/g, '')}`);
+        lines.push(`Аккаунт «${who}»:\n${names.length ? names.join('\n') : '— нет активных курсов'}`);
+      }
+      return lines.join('\n\n');
+    } catch (err) {
+      logger.error({ err, userId: ctx.userId }, 'Ошибка списка курсов Classroom');
+      return `Не удалось получить курсы: ${errDetail(err)}`;
+    }
+  },
+};
+
 export const submitClassroomWorkTool: Tool = {
   name: 'submit_classroom_work',
   description:
@@ -104,8 +131,18 @@ export const submitClassroomWorkTool: Tool = {
       }
       await proxy(accountId, `${base}:turnIn`, 'POST', {});
 
-      const attached = input.link ? ' (прикрепила ссылку)' : '';
-      return `Готово! Сдала задание «${work.title}» по курсу «${course.name}»${attached}. ✅`;
+      // ПРОВЕРЯЕМ реальный результат — не полагаемся на «нет ошибки».
+      const check = await proxy(accountId, base, 'GET');
+      if (check?.state !== 'TURNED_IN') {
+        return `Сдача не подтвердилась: состояние работы «${check?.state ?? 'неизвестно'}». Ничего не сдано — попробуй ещё раз.`;
+      }
+      const attCount = check?.assignmentSubmission?.attachments?.length ?? 0;
+      const attNote = input.link
+        ? attCount > 0
+          ? ' (документ прикреплён)'
+          : ' ⚠️ но вложение не прикрепилось — проверь в Classroom'
+        : '';
+      return `Готово, работа реально сдана: «${work.title}» — курс «${course.name}»${attNote}. ✅`;
     } catch (err) {
       logger.error({ err, userId: ctx.userId }, 'Ошибка сдачи работы в Classroom');
       return `Не удалось сдать работу. Причина от Google: ${errDetail(err)}`;
