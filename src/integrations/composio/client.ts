@@ -27,6 +27,7 @@ export const SUPPORTED_APPS: SupportedApp[] = [
   { slug: 'googledocs', name: 'Google Docs' },
   { slug: 'googlesheets', name: 'Google Sheets' },
   { slug: 'googleslides', name: 'Google Slides' },
+  { slug: 'google_classroom', name: 'Google Classroom' },
   { slug: 'slack', name: 'Slack' },
   { slug: 'notion', name: 'Notion' },
   { slug: 'github', name: 'GitHub' },
