@@ -95,6 +95,15 @@ CREATE TABLE IF NOT EXISTS google_tokens (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS tool_usage (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL,
+  tool       TEXT    NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tool_usage ON tool_usage(tool, created_at);
+CREATE INDEX IF NOT EXISTS idx_tool_usage_user ON tool_usage(user_id, created_at);
+
 CREATE TABLE IF NOT EXISTS channels (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id    INTEGER NOT NULL,

@@ -5,7 +5,7 @@ import { config } from '../config';
 import { logger } from '../logger';
 import { functionDeclarations, toolMap } from '../tools/registry';
 import type { ToolContext } from '../tools/types';
-import { profileRepo, type StoredMessage } from '../db/repositories';
+import { profileRepo, toolUsageRepo, type StoredMessage } from '../db/repositories';
 import { isComposioConfigured } from '../integrations/composio/client';
 import { getComposioTools, executeComposio } from '../integrations/composio/tools';
 
@@ -74,6 +74,7 @@ export async function runAgent(
         const name = call.name ?? '';
         const args = (call.args ?? {}) as Record<string, any>;
         const tool = toolMap.get(name);
+        if (name) toolUsageRepo.log(ctx.userId, name);
         let result: string;
         try {
           if (tool) {

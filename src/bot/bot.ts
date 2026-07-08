@@ -631,25 +631,75 @@ async function handleCommand(
       const avg = total > 0 ? (prompts / total).toFixed(1) : '0';
       const conv = total > 0 ? ((pro / total) * 100).toFixed(1) : '0';
 
+      const month = now - 30 * 24 * 3600 * 1000;
+      const wau = statsRepo.activeUsersSince(week);
+      const returning = statsRepo.returningUsers(now);
+      const retention = wau > 0 ? ((returning / wau) * 100).toFixed(0) : '0';
+
+      // Выручка: разбивка активных подписок по источнику.
+      const subs = statsRepo.subsByProvider(now);
+      const byProv = (p: string) => subs.find((s) => s.provider === p)?.n ?? 0;
+      const paid = byProv('stars') + byProv('lemonsqueezy');
+      const mrr = paid * config.proStarsPrice; // грубая оценка в звёздах/мес
+
       const text = [
         '📊 Статистика Velora',
         '',
-        `👥 Пользователей: ${total}`,
-        `⭐ Pro (активны): ${pro}`,
+        '— Пользователи —',
+        `👥 Всего: ${total}`,
+        `⭐ Pro активных: ${pro} (📈 конверсия ${conv}%)`,
         `🆓 Free: ${free}`,
-        `📈 Конверсия в Pro: ${conv}%`,
+        `🆕 Новых: ${statsRepo.newUsersSince(day)} за сутки · ${statsRepo.newUsersSince(week)} за 7д`,
         '',
-        `🆕 Новых за сутки: ${statsRepo.newUsersSince(day)}`,
-        `🆕 Новых за 7 дней: ${statsRepo.newUsersSince(week)}`,
-        `🔥 Активных за сутки: ${statsRepo.activeUsersSince(day)}`,
-        `🔥 Активных за 7 дней: ${statsRepo.activeUsersSince(week)}`,
+        '— Вовлечённость —',
+        `🔥 DAU: ${statsRepo.activeUsersSince(day)} · WAU: ${wau} · MAU: ${statsRepo.activeUsersSince(month)}`,
+        `🔁 Возвращаются (7→7д): ${returning} (${retention}% от WAU)`,
+        `💬 Запросов: ${prompts} всего · ${statsRepo.promptsSince(day)} за сутки · ${avg} на юзера`,
         '',
-        `💬 Запросов всего: ${prompts}`,
-        `💬 За сутки: ${statsRepo.promptsSince(day)}`,
-        `💬 Среднее на юзера: ${avg}`,
+        '— Деньги —',
+        `💳 Платных подписок: ${paid} (звёзды ${byProv('stars')} · карта ${byProv('lemonsqueezy')})`,
+        `🎓 Админ/триал: ${byProv('admin')} / ${byProv('referral_trial')}`,
+        `📉 ~MRR: ${mrr} ⭐/мес`,
         '',
-        `🎁 Пришли по рефералке: ${statsRepo.referredUsers()}`,
-        `⏰ Отложенных отправок: ${statsRepo.pendingScheduled()}`,
+        `🎁 По рефералке: ${statsRepo.referredUsers()} · ⏰ Отложенных: ${statsRepo.pendingScheduled()}`,
+        '',
+        'Что используют — /usage ' + config.adminPassword,
+      ].join('\n');
+
+      await bot.sendMessage(chatId, text);
+      return;
+    }
+
+    case '/usage': {
+      // Что реально используют: топ инструментов, adoption интеграций, объекты.
+      if (arg !== config.adminPassword) {
+        await bot.sendMessage(chatId, t('admin_denied', lang));
+        return;
+      }
+      const monthAgo = Date.now() - 30 * 24 * 3600 * 1000;
+      const tools = statsRepo.topTools(monthAgo, 15);
+      const adoption = statsRepo.integrationAdoption();
+      const f = statsRepo.featureCounts();
+
+      const toolLines = tools.length
+        ? tools.map((x, i) => `${i + 1}. ${x.tool} — ${x.n}`).join('\n')
+        : 'Пока нет данных (собирается с этого деплоя).';
+      const adoptionLines = adoption.length
+        ? adoption.map((x) => `• ${x.toolkit}: ${x.n}`).join('\n')
+        : 'Никто ещё не подключил интеграции.';
+
+      const text = [
+        '🧩 Использование функций (30 дней)',
+        '',
+        '— Топ инструментов —',
+        toolLines,
+        '',
+        '— Подключённые интеграции (юзеров) —',
+        adoptionLines,
+        '',
+        '— Создано объектов —',
+        `⏰ Напоминаний: ${f.reminders} · ✅ Задач: ${f.tasks}`,
+        `📝 Заметок: ${f.notes} · 👥 Контактов: ${f.contacts}`,
       ].join('\n');
 
       await bot.sendMessage(chatId, text);

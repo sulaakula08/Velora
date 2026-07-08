@@ -509,6 +509,32 @@ const stmtCountActiveUsersSince = db.prepare(
 
 const n = (row: unknown) => (row as { n: number }).n;
 
+// Возвраты: активны за последние 7 дней И были активны в предыдущие 7 дней.
+const stmtReturningUsers = db.prepare(
+  `SELECT COUNT(DISTINCT user_id) AS n FROM messages
+   WHERE role = 'user' AND created_at >= @weekAgo
+     AND user_id IN (
+       SELECT user_id FROM messages
+       WHERE role = 'user' AND created_at >= @twoWeeksAgo AND created_at < @weekAgo
+     )`,
+);
+const stmtSubsByProvider = db.prepare(
+  `SELECT provider, COUNT(*) AS n FROM subscriptions
+   WHERE status = 'active' AND (current_period_end IS NULL OR current_period_end > ?)
+   GROUP BY provider`,
+);
+const stmtIntegrationAdoption = db.prepare(
+  `SELECT toolkit, COUNT(DISTINCT user_id) AS n FROM composio_connections GROUP BY toolkit ORDER BY n DESC`,
+);
+const stmtTopTools = db.prepare(
+  `SELECT tool, COUNT(*) AS n FROM tool_usage WHERE created_at >= ? GROUP BY tool ORDER BY n DESC LIMIT ?`,
+);
+const stmtTableCount = (table: string) => db.prepare(`SELECT COUNT(*) AS n FROM ${table}`);
+const stmtReminders = stmtTableCount('reminders');
+const stmtTasksCount = stmtTableCount('tasks');
+const stmtNotesCount = stmtTableCount('notes');
+const stmtContactsCount = stmtTableCount('contacts');
+
 export const statsRepo = {
   totalUsers: () => n(stmtCountUsers.get()),
   newUsersSince: (since: number) => n(stmtCountUsersSince.get(since)),
@@ -518,6 +544,35 @@ export const statsRepo = {
   activeUsersSince: (since: number) => n(stmtCountActiveUsersSince.get(since)),
   referredUsers: () => n(stmtCountReferred.get()),
   pendingScheduled: () => n(stmtCountPendingScheduled.get()),
+  returningUsers: (now = Date.now()) =>
+    n(stmtReturningUsers.get({ weekAgo: now - 7 * 864e5, twoWeeksAgo: now - 14 * 864e5 })),
+  subsByProvider: (now = Date.now()) =>
+    stmtSubsByProvider.all(now) as { provider: string | null; n: number }[],
+  integrationAdoption: () => stmtIntegrationAdoption.all() as { toolkit: string; n: number }[],
+  topTools: (since: number, limit = 15) =>
+    stmtTopTools.all(since, limit) as { tool: string; n: number }[],
+  featureCounts: () => ({
+    reminders: n(stmtReminders.get()),
+    tasks: n(stmtTasksCount.get()),
+    notes: n(stmtNotesCount.get()),
+    contacts: n(stmtContactsCount.get()),
+  }),
+};
+
+// ---------- tool_usage (какие инструменты вызывают) ----------
+
+const stmtLogTool = db.prepare(
+  `INSERT INTO tool_usage (user_id, tool, created_at) VALUES (?, ?, ?)`,
+);
+
+export const toolUsageRepo = {
+  log(userId: number, tool: string): void {
+    try {
+      stmtLogTool.run(userId, tool, Date.now());
+    } catch {
+      /* аналитика не должна ломать основной поток */
+    }
+  },
 };
 
 // ---------- subscriptions (подписка Pro) ----------
