@@ -1,5 +1,6 @@
 import { Composio } from '@composio/core';
 import { config } from '../../config';
+import { logger } from '../../logger';
 
 /** Настроена ли интеграция Composio (задан ли API-ключ). */
 export function isComposioConfigured(): boolean {
@@ -32,9 +33,35 @@ export const SUPPORTED_APPS: SupportedApp[] = [
   { slug: 'linear', name: 'Linear' },
 ];
 
-/** id auth-конфига (из дашборда Composio) для тулкита, если задан в .env. */
+// Карта slug → auth_config_id, подтянутая из Composio при старте. Избавляет от
+// необходимости прописывать COMPOSIO_AUTH_CONFIGS вручную: любой включённый
+// auth-конфиг в дашборде Composio автоматически становится доступным в боте.
+let dynamicAuthConfigs: Record<string, string> = {};
+
+/**
+ * Загружает список включённых auth-конфигов из Composio и строит карту slug→id.
+ * Вызывается при старте. При ошибке молча используем значения из .env (fallback).
+ */
+export async function loadAuthConfigs(): Promise<void> {
+  try {
+    const res: any = await (composio() as any).authConfigs.list();
+    const items: any[] = res?.items ?? (Array.isArray(res) ? res : []);
+    const map: Record<string, string> = {};
+    for (const a of items) {
+      const slug: string | undefined = a.toolkit?.slug ?? a.toolkitSlug ?? a.toolkit;
+      const enabled = a.status ? a.status === 'ENABLED' : a.isDisabled !== true;
+      if (slug && a.id && enabled) map[slug] = a.id;
+    }
+    dynamicAuthConfigs = map;
+    logger.info({ apps: Object.keys(map) }, 'Auth-конфиги Composio загружены');
+  } catch (err) {
+    logger.warn({ err }, 'Не удалось загрузить auth-конфиги Composio — использую .env');
+  }
+}
+
+/** id auth-конфига для тулкита: сперва из Composio, иначе из .env. */
 export function authConfigFor(slug: string): string | undefined {
-  return config.composioAuthConfigs[slug];
+  return dynamicAuthConfigs[slug] ?? config.composioAuthConfigs[slug];
 }
 
 /** Приложения, реально доступные для подключения (у которых есть auth-конфиг). */

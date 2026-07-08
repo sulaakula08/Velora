@@ -7,7 +7,7 @@ import { t } from './i18n/i18n';
 import { startHttpServer } from './http/server';
 import { isGoogleConfigured } from './integrations/google/oauth';
 import { registerGoogleRoutes } from './integrations/google/server';
-import { isComposioConfigured, SUPPORTED_APPS } from './integrations/composio/client';
+import { isComposioConfigured, SUPPORTED_APPS, loadAuthConfigs } from './integrations/composio/client';
 import { registerComposioRoutes } from './integrations/composio/connect';
 import { billingEnabled } from './billing/plans';
 import { registerBillingRoutes } from './billing/lemonsqueezy';
@@ -48,6 +48,11 @@ function main(): void {
 
   // Composio — универсальные интеграции.
   if (composioOn) {
+    // Подтягиваем auth-конфиги из Composio (Sheets, Canva и всё включённое)
+    // без ручного COMPOSIO_AUTH_CONFIGS. Обновляем и периодически.
+    void loadAuthConfigs();
+    setInterval(() => void loadAuthConfigs(), 30 * 60 * 1000).unref();
+
     registerComposioRoutes((userId, toolkit) => {
       const user = usersRepo.get(userId);
       const appName = SUPPORTED_APPS.find((a) => a.slug === toolkit)?.name ?? toolkit;
