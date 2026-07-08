@@ -14,7 +14,7 @@ function required(name: string): string {
 export const config = {
   telegramToken: required('TELEGRAM_BOT_TOKEN'),
   geminiApiKey: required('GEMINI_API_KEY'),
-  model: process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash',
+  model: process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-pro',
   // Модель и голос для синтеза речи (голосовые ответы Velora).
   ttsModel: process.env.GEMINI_TTS_MODEL?.trim() || 'gemini-2.5-flash-preview-tts',
   ttsVoice: process.env.GEMINI_TTS_VOICE?.trim() || 'Kore',
