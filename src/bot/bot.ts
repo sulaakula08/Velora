@@ -105,7 +105,6 @@ const APP_EMOJI: Record<string, string> = {
   googledocs: '📄',
   googlesheets: '📊',
   googleslides: '📽️',
-  telegram: '✈️',
   slack: '💬',
   notion: '📝',
   github: '🐙',
