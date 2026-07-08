@@ -103,6 +103,8 @@ const APP_EMOJI: Record<string, string> = {
   googlecalendar: '📅',
   googlemeet: '🎥',
   googledocs: '📄',
+  googlesheets: '📊',
+  canva: '🎨',
   slack: '💬',
   notion: '📝',
   github: '🐙',
