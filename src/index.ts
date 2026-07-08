@@ -48,7 +48,7 @@ function main(): void {
 
   // Composio — универсальные интеграции.
   if (composioOn) {
-    // Подтягиваем auth-конфиги из Composio (Sheets, Canva и всё включённое)
+    // Подтягиваем auth-конфиги из Composio (Sheets, Slides и всё включённое)
     // без ручного COMPOSIO_AUTH_CONFIGS. Обновляем и периодически.
     void loadAuthConfigs();
     setInterval(() => void loadAuthConfigs(), 30 * 60 * 1000).unref();
