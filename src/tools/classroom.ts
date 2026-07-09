@@ -144,8 +144,19 @@ export const submitClassroomWorkTool: Tool = {
         : '';
       return `Готово, работа реально сдана: «${work.title}» — курс «${course.name}»${attNote}. ✅`;
     } catch (err) {
+      const detail = errDetail(err);
       logger.error({ err, userId: ctx.userId }, 'Ошибка сдачи работы в Classroom');
-      return `Не удалось сдать работу. Причина от Google: ${errDetail(err)}`;
+      // Жёсткое ограничение Google: сдавать/прикреплять может только приложение,
+      // создавшее задание. Учительские задания сторонний бот сдать не может.
+      if (/permission_denied|projectpermissiondenied|not permitted/i.test(detail)) {
+        const link = input.link ? `\n\nДокумент готов, сдай вручную в один шаг: ${input.link}` : '';
+        return (
+          'СДАТЬ АВТОМАТИЧЕСКИ НЕЛЬЗЯ — это ограничение Google Classroom (не школы): прикреплять и сдавать может ' +
+          'только приложение, создавшее задание, а его создал учитель. Никакой бот это обойти не может. ' +
+          `Открой задание «${input.assignment_name}» в Classroom и прикрепи документ вручную.${link}`
+        );
+      }
+      return `Не удалось сдать работу. Причина от Google: ${detail}`;
     }
   },
 };
