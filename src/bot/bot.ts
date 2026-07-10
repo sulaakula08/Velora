@@ -511,11 +511,10 @@ async function handleCommand(
   switch (command) {
     case '/start': {
       const showConnect = isComposioConfigured() && availableApps().length > 0;
-      await bot.sendMessage(
-        chatId,
-        t('welcome', lang),
-        showConnect ? { reply_markup: connectKeyboard() } : undefined,
-      );
+      await bot.sendMessage(chatId, renderHtml(t('welcome', lang)), {
+        parse_mode: 'HTML',
+        ...(showConnect ? { reply_markup: connectKeyboard() } : {}),
+      });
       return;
     }
 
