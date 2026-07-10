@@ -71,6 +71,73 @@ export const listClassroomCoursesTool: Tool = {
   },
 };
 
+export const createClassroomAssignmentTool: Tool = {
+  name: 'create_classroom_assignment',
+  description:
+    'Создать (загрузить) задание в Google Classroom в курсе, где пользователь — УЧИТЕЛЬ. Можно приложить ссылку/материал ' +
+    'и задать срок. Вызывай на «создай задание…», «загрузи задание в курс…», «выложи домашку». Работает только для ' +
+    'курсов, где пользователь преподаёт (для курсов, где он ученик, создавать задания нельзя). Перед созданием покажи ' +
+    'курс, название и срок и получи подтверждение.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      course_name: { type: 'string', description: 'Название курса (можно часть), где пользователь учитель.' },
+      title: { type: 'string', description: 'Название задания.' },
+      description: { type: 'string', description: 'Описание/инструкция к заданию (необязательно).' },
+      link: { type: 'string', description: 'Ссылка-материал к заданию (Google Doc/URL). Необязательно.' },
+      due: { type: 'string', description: 'Срок сдачи в ISO 8601 +05:00, напр. 2026-07-15T23:59:00+05:00. Необязательно.' },
+    },
+    required: ['course_name', 'title'],
+  },
+  async execute(input, ctx) {
+    try {
+      const accounts = await classroomAccounts(ctx.userId);
+      if (accounts.length === 0) return 'Google Classroom не подключён. Подключи его через /connect.';
+
+      // Ищем курс среди тех, где пользователь — УЧИТЕЛЬ (иначе создать нельзя).
+      const q = norm(input.course_name);
+      let accountId = '';
+      let course: { id: string; name: string } | null = null;
+      for (const a of accounts) {
+        const data = await proxy(a, `${API}/courses?teacherId=me&courseStates=ACTIVE&pageSize=200`, 'GET');
+        const courses: any[] = data?.courses ?? [];
+        const hit =
+          courses.find((c) => norm(c.name ?? '') === q) || courses.find((c) => norm(c.name ?? '').includes(q));
+        if (hit) {
+          accountId = a;
+          course = { id: hit.id, name: hit.name };
+          break;
+        }
+      }
+      if (!course) {
+        return `Не нашла курс «${input.course_name}», где ты учитель. Создавать задания можно только в своих учительских курсах — создай класс в Classroom (ты станешь учителем) и попробуй снова.`;
+      }
+
+      const body: any = {
+        title: input.title,
+        workType: 'ASSIGNMENT',
+        state: 'PUBLISHED',
+      };
+      if (input.description) body.description = input.description;
+      if (input.link) body.materials = [{ link: { url: input.link } }];
+      if (input.due) {
+        const d = new Date(input.due);
+        if (!Number.isNaN(d.getTime())) {
+          body.dueDate = { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+          body.dueTime = { hours: d.getUTCHours(), minutes: d.getUTCMinutes() };
+        }
+      }
+
+      const created = await proxy(accountId, `${API}/courses/${course.id}/courseWork`, 'POST', body);
+      const link = created?.alternateLink ? `\nСсылка: ${created.alternateLink}` : '';
+      return `Готово! Создала задание «${input.title}» в курсе «${course.name}».${link} ✅`;
+    } catch (err) {
+      logger.error({ err, userId: ctx.userId }, 'Ошибка создания задания Classroom');
+      return `Не удалось создать задание. Причина от Google: ${errDetail(err)}`;
+    }
+  },
+};
+
 export const submitClassroomWorkTool: Tool = {
   name: 'submit_classroom_work',
   description:
