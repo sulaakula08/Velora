@@ -625,6 +625,26 @@ export const toolUsageRepo = {
   },
 };
 
+// ---------- обслуживание (сброс статистики) ----------
+
+const stmtDeleteAllMessages = db.prepare(`DELETE FROM messages`);
+const stmtDeleteAllToolUsage = db.prepare(`DELETE FROM tool_usage`);
+
+export const maintenanceRepo = {
+  /**
+   * Обнуляет статистику использования: удаляет историю сообщений (промпты, DAU/WAU)
+   * и логи вызовов инструментов. Пользователи и подписки НЕ трогаются.
+   */
+  resetUsageStats(): { messages: number; tools: number } {
+    const reset = db.transaction(() => {
+      const messages = stmtDeleteAllMessages.run().changes;
+      const tools = stmtDeleteAllToolUsage.run().changes;
+      return { messages, tools };
+    });
+    return reset();
+  },
+};
+
 // ---------- subscriptions (подписка Pro) ----------
 
 export interface SubscriptionRow {

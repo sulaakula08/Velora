@@ -2,7 +2,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import { config } from '../config';
 import { logger } from '../logger';
 import { t, detectLang, type Lang } from '../i18n/i18n';
-import { usersRepo, messagesRepo, composioRepo, subscriptionsRepo, statsRepo, feedbackRepo, type VoiceMode } from '../db/repositories';
+import { usersRepo, messagesRepo, composioRepo, subscriptionsRepo, statsRepo, feedbackRepo, maintenanceRepo, type VoiceMode } from '../db/repositories';
 import { runAgent } from '../ai/agent';
 import { synthesizeVoice } from '../ai/tts';
 import { fetchStarInfo } from '../billing/starsBalance';
@@ -736,6 +736,20 @@ async function handleCommand(
       await bot.sendChatAction(chatId, 'typing').catch(() => {});
       const info = await fetchStarInfo();
       await bot.sendMessage(chatId, info);
+      return;
+    }
+
+    case '/reset_stats': {
+      // Обнуление статистики промптов и функций (пользователи и Pro сохраняются).
+      if (arg !== config.adminPassword) {
+        await bot.sendMessage(chatId, t('admin_denied', lang));
+        return;
+      }
+      const r = maintenanceRepo.resetUsageStats();
+      await bot.sendMessage(
+        chatId,
+        `✅ Статистика обнулена.\nУдалено: сообщений ${r.messages}, вызовов инструментов ${r.tools}.\nПользователи и Pro сохранены. (История диалогов тоже очищена.)`,
+      );
       return;
     }
 
