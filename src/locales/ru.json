@@ -26,6 +26,8 @@
   "connections_empty": "Пока ничего не подключено. Набери /connect, чтобы добавить приложение.",
   "connections_list": "Подключено: {list}.",
   "disconnected": "{app} отключён.",
+  "disconnect_all_btn": "❌ Отключить всё",
+  "disconnected_all": "Все приложения отключены. ✅",
   "briefing_greeting": "Доброе утро! 👋 Коротко на сегодня:",
   "briefing_tasks_header": "📋 Задачи:",
   "briefing_reminders_header": "⏰ Напоминания на сегодня:",

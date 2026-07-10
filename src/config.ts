@@ -53,7 +53,7 @@ export const config = {
   // Ссылка на чекаут продукта Pro из дашборда LemonSqueezy.
   lemonCheckoutUrl: process.env.LEMONSQUEEZY_CHECKOUT_URL?.trim() || '',
   // Лимиты бесплатного тарифа.
-  freeDailyMessages: parseInt(process.env.FREE_DAILY_MESSAGES || '25', 10),
+  freeDailyMessages: parseInt(process.env.FREE_DAILY_MESSAGES || '15', 10),
   freeMaxIntegrations: parseInt(process.env.FREE_MAX_INTEGRATIONS || '1', 10),
   // Реферальная программа и триал (дни Pro).
   referralBonusDays: parseInt(process.env.REFERRAL_BONUS_DAYS || '7', 10),

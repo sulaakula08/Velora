@@ -26,6 +26,8 @@
   "connections_empty": "Әзірге ештеңе қосылмаған. Қосымша қосу үшін /connect жаз.",
   "connections_list": "Қосылған: {list}.",
   "disconnected": "{app} ажыратылды.",
+  "disconnect_all_btn": "❌ Барлығын ажырату",
+  "disconnected_all": "Барлық қосымшалар ажыратылды. ✅",
   "briefing_greeting": "Қайырлы таң! 👋 Бүгінге қысқаша:",
   "briefing_tasks_header": "📋 Тапсырмалар:",
   "briefing_reminders_header": "⏰ Бүгінгі еске салулар:",

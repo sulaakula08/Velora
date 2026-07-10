@@ -35,6 +35,28 @@ import {
 // Пользователи, от которых ждём текст отзыва (после нажатия кнопки в /feedback).
 const pendingFeedback = new Map<number, { anonymous: boolean }>();
 
+/** Отключает все подключённые пользователем интеграции. */
+async function disconnectAllApps(userId: number): Promise<void> {
+  for (const slug of composioRepo.listToolkits(userId)) {
+    await disconnectApp(userId, slug).catch(() => {});
+  }
+}
+
+/** Превращает **жирный** из ответа модели в настоящий жирный (Telegram HTML). */
+function renderHtml(text: string): string {
+  const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return esc.replace(/\*\*(.+?)\*\*/gs, '<b>$1</b>').replace(/__(.+?)__/gs, '<b>$1</b>');
+}
+
+/** Отправляет ответ модели с жирным; при сбое HTML — чистым текстом без звёздочек. */
+async function sendReply(bot: TelegramBot, chatId: number, text: string): Promise<void> {
+  try {
+    await bot.sendMessage(chatId, renderHtml(text), { parse_mode: 'HTML' });
+  } catch {
+    await bot.sendMessage(chatId, text.replace(/\*\*/g, '').replace(/__/g, ''));
+  }
+}
+
 /** Зачёркивает текст (Unicode) — для «старой» цены в промо: 250 → 2̶5̶0̶. */
 function strike(s: string): string {
   return s.split('').map((c) => c + '̶').join('');
@@ -117,11 +139,14 @@ function connectKeyboard(): TelegramBot.InlineKeyboardMarkup {
 }
 
 /** Inline-клавиатура «отвязать» для уже подключённых пользователем тулкитов. */
-function disconnectKeyboard(userId: number): TelegramBot.InlineKeyboardMarkup {
+function disconnectKeyboard(userId: number, lang: Lang): TelegramBot.InlineKeyboardMarkup {
   const rows = composioRepo.listToolkits(userId).map((slug) => {
     const name = SUPPORTED_APPS.find((a) => a.slug === slug)?.name ?? slug;
     return [{ text: `❌ ${APP_EMOJI[slug] ?? '🔌'} ${name}`, callback_data: `disconnect:${slug}` }];
   });
+  if (rows.length > 1) {
+    rows.push([{ text: t('disconnect_all_btn', lang), callback_data: 'disconnect:__all__' }]);
+  }
   return { inline_keyboard: rows };
 }
 
@@ -254,8 +279,15 @@ async function handleCallback(
 
   // Отвязка приложения по кнопке.
   if (data.startsWith('disconnect:')) {
-    const app = findApp(data.slice('disconnect:'.length));
+    const slug = data.slice('disconnect:'.length);
     await bot.answerCallbackQuery(query.id).catch(() => {});
+    // Отключить всё сразу.
+    if (slug === '__all__') {
+      await disconnectAllApps(userId);
+      await bot.sendMessage(chatId, t('disconnected_all', lang));
+      return;
+    }
+    const app = findApp(slug);
     if (!app) {
       await bot.sendMessage(chatId, t('connect_unknown', lang));
       return;
@@ -457,7 +489,7 @@ async function handleMessage(bot: TelegramBot, msg: TelegramBot.Message): Promis
     }
 
     if (!voiceSent) {
-      await bot.sendMessage(chatId, reply);
+      await sendReply(bot, chatId, reply);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -853,8 +885,25 @@ async function handleCommand(
       return;
     }
 
+    case '/disconnect_all': {
+      const toolkits = composioRepo.listToolkits(userId);
+      if (toolkits.length === 0) {
+        await bot.sendMessage(chatId, t('connections_empty', lang));
+        return;
+      }
+      await disconnectAllApps(userId);
+      await bot.sendMessage(chatId, t('disconnected_all', lang));
+      return;
+    }
+
     case '/disconnect': {
-      // С аргументом — отвязываем конкретное приложение (старый путь).
+      // С аргументом «all» — отключаем всё.
+      if (arg && ['all', 'все', 'всё'].includes(arg.toLowerCase())) {
+        await disconnectAllApps(userId);
+        await bot.sendMessage(chatId, t('disconnected_all', lang));
+        return;
+      }
+      // С аргументом-приложением — отвязываем конкретное.
       if (arg) {
         const app = findApp(arg.toLowerCase());
         if (!app) {
@@ -872,7 +921,7 @@ async function handleCommand(
         return;
       }
       await bot.sendMessage(chatId, t('disconnect_choose', lang), {
-        reply_markup: disconnectKeyboard(userId),
+        reply_markup: disconnectKeyboard(userId, lang),
       });
       return;
     }
