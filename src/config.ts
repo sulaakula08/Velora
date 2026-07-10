@@ -17,7 +17,11 @@ export const config = {
   model: process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-pro',
   // Модель и голос для синтеза речи (голосовые ответы Velora).
   ttsModel: process.env.GEMINI_TTS_MODEL?.trim() || 'gemini-2.5-flash-preview-tts',
-  ttsVoice: process.env.GEMINI_TTS_VOICE?.trim() || 'Kore',
+  ttsVoice: process.env.GEMINI_TTS_VOICE?.trim() || 'Charon', // мужской голос для Dosym
+  // Язык озвучки: 'auto' — как в ответе (по умолчанию). ВНИМАНИЕ: движок TTS
+  // не поддерживает казахскую озвучку, поэтому принудительный 'kk' ломает голос —
+  // оставляем 'auto'. Можно задать 'ru', чтобы всегда озвучивать по-русски.
+  ttsLang: process.env.TTS_LANG?.trim() || 'auto',
   historyLimit: parseInt(process.env.HISTORY_LIMIT || '20', 10),
   timezone: process.env.TIMEZONE?.trim() || 'Asia/Almaty',
   dbPath: process.env.DB_PATH?.trim() || './velora.db',

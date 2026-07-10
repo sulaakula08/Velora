@@ -4,6 +4,25 @@ import ffmpegPath from 'ffmpeg-static';
 import { ai } from './client';
 import { config } from '../config';
 import { logger } from '../logger';
+import { detectLang } from '../i18n/i18n';
+
+const LANG_NAME: Record<string, string> = { ru: 'русский', kk: 'казахский' };
+
+/** Переводит текст на язык озвучки (быстрая модель). При сбое — исходный текст. */
+async function translateForVoice(text: string, lang: string): Promise<string> {
+  const name = LANG_NAME[lang];
+  if (!name) return text;
+  try {
+    const res = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: `Переведи текст на ${name} язык. Верни ТОЛЬКО перевод, без пояснений и кавычек:\n\n${text}`,
+    });
+    return res.text?.trim() || text;
+  } catch (err) {
+    logger.warn({ err }, 'Не удалось перевести текст для озвучки');
+    return text;
+  }
+}
 
 // При старте один раз проверяем, что бинарь ffmpeg реально на месте (на некоторых
 // хостингах ffmpeg-static не докачивается при билде) — иначе голосовые молча не идут.
@@ -54,8 +73,14 @@ function pcmToOggOpus(pcm: Buffer): Promise<Buffer> {
  * просто оставит текстовый ответ.
  */
 export async function synthesizeVoice(text: string): Promise<Buffer | null> {
-  const clean = cleanForSpeech(text);
+  let clean = cleanForSpeech(text);
   if (!clean) return null;
+
+  // Принудительный язык озвучки (напр. 'ru'): если текст на другом языке — переводим.
+  // 'auto' — озвучиваем как есть. (Казахскую озвучку движок TTS не поддерживает.)
+  if (config.ttsLang !== 'auto' && detectLang(clean) !== config.ttsLang) {
+    clean = cleanForSpeech(await translateForVoice(clean, config.ttsLang)) || clean;
+  }
 
   try {
     const res = await ai.models.generateContent({
