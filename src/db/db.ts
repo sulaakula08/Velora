@@ -95,6 +95,15 @@ CREATE TABLE IF NOT EXISTS google_tokens (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS feedback (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER,              -- NULL, если отправлено анонимно
+  username   TEXT,
+  text       TEXT    NOT NULL,
+  anonymous  INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS tool_usage (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id    INTEGER NOT NULL,

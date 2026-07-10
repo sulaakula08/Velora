@@ -506,6 +506,16 @@ const stmtCountPendingScheduled = db.prepare(`SELECT COUNT(*) AS n FROM schedule
 const stmtCountActiveUsersSince = db.prepare(
   `SELECT COUNT(DISTINCT user_id) AS n FROM messages WHERE role = 'user' AND created_at >= ?`,
 );
+const stmtActiveDetailed = db.prepare(
+  `SELECT u.user_id, u.username, u.first_name, COUNT(m.id) AS msgs
+   FROM users u JOIN messages m ON m.user_id = u.user_id
+   WHERE m.role = 'user' AND m.created_at >= @since
+   GROUP BY u.user_id ORDER BY msgs DESC LIMIT @limit`,
+);
+const stmtTopToolUser = db.prepare(
+  `SELECT tool, COUNT(*) AS n FROM tool_usage WHERE user_id = ? AND created_at >= ?
+   GROUP BY tool ORDER BY n DESC LIMIT 1`,
+);
 
 const n = (row: unknown) => (row as { n: number }).n;
 
@@ -557,6 +567,46 @@ export const statsRepo = {
     notes: n(stmtNotesCount.get()),
     contacts: n(stmtContactsCount.get()),
   }),
+  activeUsersDetailed: (since: number, limit = 30) =>
+    stmtActiveDetailed.all({ since, limit }) as {
+      user_id: number;
+      username: string | null;
+      first_name: string | null;
+      msgs: number;
+    }[],
+  topToolForUser: (userId: number, since: number) =>
+    stmtTopToolUser.get(userId, since) as { tool: string; n: number } | undefined,
+};
+
+// ---------- feedback (мнения пользователей) ----------
+
+const stmtAddFeedback = db.prepare(
+  `INSERT INTO feedback (user_id, username, text, anonymous, created_at) VALUES (?, ?, ?, ?, ?)`,
+);
+const stmtListFeedback = db.prepare(
+  `SELECT user_id, username, text, anonymous, created_at FROM feedback ORDER BY id DESC LIMIT ?`,
+);
+
+export const feedbackRepo = {
+  /** Анонимно — не сохраняем ни id, ни username (настоящая анонимность). */
+  add(userId: number, username: string | undefined, text: string, anonymous: boolean): void {
+    stmtAddFeedback.run(
+      anonymous ? null : userId,
+      anonymous ? null : username ?? null,
+      text,
+      anonymous ? 1 : 0,
+      Date.now(),
+    );
+  },
+  listRecent(limit = 20): {
+    user_id: number | null;
+    username: string | null;
+    text: string;
+    anonymous: number;
+    created_at: number;
+  }[] {
+    return stmtListFeedback.all(limit) as any[];
+  },
 };
 
 // ---------- tool_usage (какие инструменты вызывают) ----------

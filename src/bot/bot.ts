@@ -2,7 +2,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import { config } from '../config';
 import { logger } from '../logger';
 import { t, detectLang, type Lang } from '../i18n/i18n';
-import { usersRepo, messagesRepo, composioRepo, subscriptionsRepo, statsRepo, type VoiceMode } from '../db/repositories';
+import { usersRepo, messagesRepo, composioRepo, subscriptionsRepo, statsRepo, feedbackRepo, type VoiceMode } from '../db/repositories';
 import { runAgent } from '../ai/agent';
 import { synthesizeVoice } from '../ai/tts';
 import { fetchStarInfo } from '../billing/starsBalance';
@@ -34,6 +34,9 @@ import {
 
 // Username бота — для реферальных ссылок. Заполняется при старте (getMe).
 let botUsername = '';
+
+// Пользователи, от которых ждём текст отзыва (после нажатия кнопки в /feedback).
+const pendingFeedback = new Map<number, { anonymous: boolean }>();
 
 /** Зачёркивает текст (Unicode) — для «старой» цены в промо: 250 → 2̶5̶0̶. */
 function strike(s: string): string {
@@ -223,6 +226,14 @@ async function handleCallback(
     return;
   }
 
+  // Выбор режима отзыва → ждём следующее сообщение как отзыв.
+  if (data === 'fb:named' || data === 'fb:anon') {
+    await bot.answerCallbackQuery(query.id).catch(() => {});
+    pendingFeedback.set(userId, { anonymous: data === 'fb:anon' });
+    await bot.sendMessage(chatId, t('feedback_prompt', lang));
+    return;
+  }
+
   // Кнопка «Оформить Pro» → показать выбор плана.
   if (data === 'upgrade') {
     await bot.answerCallbackQuery(query.id).catch(() => {});
@@ -354,6 +365,20 @@ async function handleMessage(bot: TelegramBot, msg: TelegramBot.Message): Promis
 
   // --- Команды (только для текстовых сообщений) ---
   const commandText = msg.text?.trim();
+
+  // Если ждём отзыв от пользователя — перехватываем следующее НЕ-командное сообщение.
+  if (pendingFeedback.has(userId)) {
+    if (commandText && !commandText.startsWith('/')) {
+      const mode = pendingFeedback.get(userId)!;
+      pendingFeedback.delete(userId);
+      feedbackRepo.add(userId, msg.from?.username, commandText, mode.anonymous);
+      logger.info({ userId, anonymous: mode.anonymous }, 'Получен отзыв');
+      await bot.sendMessage(chatId, t('feedback_thanks', lang));
+      return;
+    }
+    pendingFeedback.delete(userId); // команда/вложение — отменяем режим отзыва
+  }
+
   if (commandText && commandText.startsWith('/')) {
     await handleCommand(bot, commandText, userId, chatId, lang);
     return;
@@ -611,6 +636,63 @@ async function handleCommand(
       }
       subscriptionsRepo.setStatus(userId, 'cancelled');
       await bot.sendMessage(chatId, t('cancel_done', lang));
+      return;
+    }
+
+    case '/feedback':
+    case '/otziv': {
+      // Пользователь оставляет отзыв: выбор аноним/с именем кнопками.
+      await bot.sendMessage(chatId, t('feedback_choose', lang), {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: t('feedback_btn_named', lang), callback_data: 'fb:named' }],
+            [{ text: t('feedback_btn_anon', lang), callback_data: 'fb:anon' }],
+          ],
+        },
+      });
+      return;
+    }
+
+    case '/users': {
+      // Список активных пользователей за 7 дней с их функциями: /users <пароль>
+      if (arg !== config.adminPassword) {
+        await bot.sendMessage(chatId, t('admin_denied', lang));
+        return;
+      }
+      const since = Date.now() - 7 * 24 * 3600 * 1000;
+      const rows = statsRepo.activeUsersDetailed(since, 30);
+      if (rows.length === 0) {
+        await bot.sendMessage(chatId, 'Активных пользователей за 7 дней нет.');
+        return;
+      }
+      const lines = rows.map((r) => {
+        const who = r.username ? `@${r.username}` : r.first_name || `id${r.user_id}`;
+        const plan = getPlan(r.user_id) === 'pro' ? '⭐' : '🆓';
+        const tt = statsRepo.topToolForUser(r.user_id, since);
+        return `${plan} ${who} (${r.user_id}) — ${r.msgs} сообщ.${tt ? ` · ${tt.tool}` : ''}`;
+      });
+      await bot.sendMessage(chatId, `👥 Активные за 7 дней (${rows.length}):\n\n${lines.join('\n')}`);
+      return;
+    }
+
+    case '/feedbacks': {
+      // Чтение отзывов пользователей: /feedbacks <пароль>
+      if (arg !== config.adminPassword) {
+        await bot.sendMessage(chatId, t('admin_denied', lang));
+        return;
+      }
+      const fbs = feedbackRepo.listRecent(25);
+      if (fbs.length === 0) {
+        await bot.sendMessage(chatId, 'Отзывов пока нет.');
+        return;
+      }
+      const fmtDate = (e: number) =>
+        new Intl.DateTimeFormat('ru-RU', { timeZone: config.timezone, dateStyle: 'short', timeStyle: 'short' }).format(e);
+      const lines = fbs.map((f) => {
+        const who = f.anonymous ? '🕶 аноним' : f.username ? `@${f.username}` : `id${f.user_id}`;
+        return `${fmtDate(f.created_at)} · ${who}:\n${f.text}`;
+      });
+      await bot.sendMessage(chatId, `💬 Последние отзывы (${fbs.length}):\n\n${lines.join('\n\n')}`);
       return;
     }
 
