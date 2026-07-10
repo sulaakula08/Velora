@@ -89,6 +89,7 @@ export const submitClassroomWorkTool: Tool = {
     required: ['course_name', 'assignment_name'],
   },
   async execute(input, ctx) {
+    let assignmentLink = ''; // прямая ссылка на задание — для ручной сдачи, если авто заблокировано
     try {
       const accounts = await classroomAccounts(ctx.userId);
       if (accounts.length === 0) return 'Google Classroom не подключён. Подключи его через /connect.';
@@ -114,6 +115,7 @@ export const submitClassroomWorkTool: Tool = {
       const cwData = await proxy(accountId, `${API}/courses/${course.id}/courseWork?pageSize=200`, 'GET');
       const work = (cwData?.courseWork ?? []).find((w: any) => norm(w.title ?? '').includes(norm(input.assignment_name)));
       if (!work) return `В курсе «${course.name}» не нашла задание «${input.assignment_name}».`;
+      assignmentLink = work.alternateLink || '';
 
       // Находим свою работу (submission).
       const subData = await proxy(
@@ -149,12 +151,16 @@ export const submitClassroomWorkTool: Tool = {
       // Жёсткое ограничение Google: сдавать/прикреплять может только приложение,
       // создавшее задание. Учительские задания сторонний бот сдать не может.
       if (/permission_denied|projectpermissiondenied|not permitted/i.test(detail)) {
-        const link = input.link ? `\n\nДокумент готов, сдай вручную в один шаг: ${input.link}` : '';
-        return (
-          'СДАТЬ АВТОМАТИЧЕСКИ НЕЛЬЗЯ — это ограничение Google Classroom (не школы): прикреплять и сдавать может ' +
-          'только приложение, создавшее задание, а его создал учитель. Никакой бот это обойти не может. ' +
-          `Открой задание «${input.assignment_name}» в Classroom и прикрепи документ вручную.${link}`
-        );
+        const steps = [
+          'Сдать автоматически нельзя — это ограничение Google Classroom (не школы): прикреплять и сдавать может только приложение, создавшее задание, а его создал учитель. Обойти это не может ни один бот.',
+          '',
+          'Но я всё подготовила — сдать вручную это 20 секунд:',
+        ];
+        if (assignmentLink) steps.push(`1. Открой задание: ${assignmentLink}`);
+        else steps.push('1. Открой это задание в Google Classroom');
+        if (input.link) steps.push(`2. Прикрепи документ: ${input.link}`);
+        steps.push(`${input.link ? '3' : '2'}. Нажми «Сдать» / «Turn in».`);
+        return steps.join('\n');
       }
       return `Не удалось сдать работу. Причина от Google: ${detail}`;
     }
