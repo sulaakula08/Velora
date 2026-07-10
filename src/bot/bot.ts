@@ -510,8 +510,10 @@ async function handleCommand(
 
   switch (command) {
     case '/start': {
+      const u = usersRepo.get(userId);
+      const name = u?.first_name || (u?.username ? `@${u.username}` : '') || 'дос';
       const showConnect = isComposioConfigured() && availableApps().length > 0;
-      await bot.sendMessage(chatId, renderHtml(t('welcome', lang)), {
+      await bot.sendMessage(chatId, renderHtml(t('welcome', lang, { name })), {
         parse_mode: 'HTML',
         ...(showConnect ? { reply_markup: connectKeyboard() } : {}),
       });
