@@ -21,15 +21,24 @@ function shorten(value: string, max = 60): string {
   return v.length > max ? v.slice(0, max - 1) + '…' : v;
 }
 
-/** Достаёт «отправитель — тема» из разных возможных форм ответа GMAIL_FETCH_EMAILS. */
-function parseEmails(data: any): { from: string; subject: string }[] {
+/** Достаёт «отправитель — тема — краткое содержимое» из ответа GMAIL_FETCH_EMAILS. */
+function parseEmails(data: any): { from: string; subject: string; snippet: string }[] {
   const arr: any[] =
     data?.messages ?? data?.emails ?? data?.data?.messages ?? (Array.isArray(data) ? data : []);
   if (!Array.isArray(arr)) return [];
-  return arr.slice(0, 5).map((m) => ({
-    from: shorten(String(m?.sender ?? m?.from ?? m?.From ?? '—').replace(/<[^>]*>/g, '').trim() || '—'),
-    subject: shorten(String(m?.subject ?? m?.Subject ?? m?.snippet ?? m?.preview ?? '(без темы)')),
-  }));
+  return arr.slice(0, 5).map((m) => {
+    const subject = String(m?.subject ?? m?.Subject ?? '(без темы)');
+    // Короткое содержимое письма, если доступно и небольшое.
+    const raw = String(m?.snippet ?? m?.preview ?? m?.messageText ?? m?.body ?? m?.messageBody ?? '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const snippet = raw && raw.toLowerCase() !== subject.toLowerCase() ? shorten(raw, 140) : '';
+    return {
+      from: shorten(String(m?.sender ?? m?.from ?? m?.From ?? '—').replace(/<[^>]*>/g, '').trim() || '—'),
+      subject: shorten(subject),
+      snippet,
+    };
+  });
 }
 
 /**
@@ -52,7 +61,10 @@ async function buildEmailDigest(userId: number, lang: Lang): Promise<string | nu
     if (emails.length === 0) return null;
 
     const lines = [t('briefing_email_header', lang, { count: String(emails.length) })];
-    emails.forEach((e) => lines.push(`• ${e.from} — ${e.subject}`));
+    emails.forEach((e) => {
+      lines.push(`• ${e.from} — ${e.subject}`);
+      if (e.snippet) lines.push(`   ${e.snippet}`);
+    });
     return lines.join('\n');
   } catch (err) {
     logger.warn({ err, userId }, 'Не удалось собрать дайджест почты для брифинга');

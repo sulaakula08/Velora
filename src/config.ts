@@ -49,19 +49,19 @@ export const config = {
   // Ссылка на чекаут продукта Pro из дашборда LemonSqueezy.
   lemonCheckoutUrl: process.env.LEMONSQUEEZY_CHECKOUT_URL?.trim() || '',
   // Лимиты бесплатного тарифа.
-  freeDailyMessages: parseInt(process.env.FREE_DAILY_MESSAGES || '15', 10),
+  freeDailyMessages: parseInt(process.env.FREE_DAILY_MESSAGES || '25', 10),
   freeMaxIntegrations: parseInt(process.env.FREE_MAX_INTEGRATIONS || '1', 10),
   // Реферальная программа и триал (дни Pro).
   referralBonusDays: parseInt(process.env.REFERRAL_BONUS_DAYS || '7', 10),
   referralTrialDays: parseInt(process.env.REFERRAL_TRIAL_DAYS || '7', 10),
   // Telegram Stars — оплата Pro прямо в боте (по умолчанию включено).
   proStarsEnabled: (process.env.PRO_STARS_ENABLED ?? 'true').trim() !== 'false',
-  proStarsPrice: parseInt(process.env.PRO_STARS_PRICE || '250', 10), // цена Pro/месяц в звёздах
-  // Промо-цена (акция на запуске). Если 0 или >= обычной — акции нет.
-  proStarsPromo: parseInt(process.env.PRO_STARS_PROMO || '30', 10),
+  proStarsPrice: parseInt(process.env.PRO_STARS_PRICE || '100', 10), // цена Pro/месяц в звёздах
+  // Промо-цена (акция). 0 или >= обычной — акции нет.
+  proStarsPromo: parseInt(process.env.PRO_STARS_PROMO || '0', 10),
   proDurationDays: parseInt(process.env.PRO_DURATION_DAYS || '30', 10), // длительность месячного Pro
   // Годовой план: дешевле в пересчёте на месяц, даёт кэш вперёд и режет отток.
-  proStarsPriceYear: parseInt(process.env.PRO_STARS_PRICE_YEAR || '2000', 10),
+  proStarsPriceYear: parseInt(process.env.PRO_STARS_PRICE_YEAR || '1000', 10),
   proDurationDaysYear: parseInt(process.env.PRO_DURATION_DAYS_YEAR || '365', 10),
   // Пароль, которым админы включают Pro бесплатно (/admin <пароль>).
   adminPassword: process.env.ADMIN_PASSWORD?.trim() || 'velora_admin',

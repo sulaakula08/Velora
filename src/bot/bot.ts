@@ -32,9 +32,6 @@ import {
   type BillingPeriod,
 } from '../billing/plans';
 
-// Username бота — для реферальных ссылок. Заполняется при старте (getMe).
-let botUsername = '';
-
 // Пользователи, от которых ждём текст отзыва (после нажатия кнопки в /feedback).
 const pendingFeedback = new Map<number, { anonymous: boolean }>();
 
@@ -65,14 +62,6 @@ export function createBot(): TelegramBot {
   }
 
   const bot = new TelegramBot(config.telegramToken, options);
-
-  // Узнаём username бота для реферальных ссылок.
-  bot
-    .getMe()
-    .then((me) => {
-      botUsername = me.username ?? '';
-    })
-    .catch((err) => logger.warn({ err }, 'Не удалось получить username бота'));
 
   // Ошибки поллинга не должны ронять процесс.
   bot.on('polling_error', (err) => logger.error({ err: err.message }, 'Ошибка Telegram polling'));
@@ -344,22 +333,6 @@ async function handleMessage(bot: TelegramBot, msg: TelegramBot.Message): Promis
     grantProDays(userId, daysFor(period), 'stars', charge);
     logger.info({ userId, charge, period }, 'Оплата Stars получена, Pro выдан');
     await bot.sendMessage(chatId, t('pro_activated', lang));
-
-    // Реферальный бонус: если этого юзера пригласили и бонус ещё не выдан —
-    // награждаем пригласившего (привязка к реальной оплате = защита от абьюза).
-    if (user.referred_by && !user.ref_rewarded) {
-      grantProDays(user.referred_by, config.referralBonusDays, 'referral_reward', String(userId));
-      usersRepo.markRefRewarded(userId);
-      const refUser = usersRepo.get(user.referred_by);
-      if (refUser) {
-        bot
-          .sendMessage(
-            refUser.chat_id,
-            t('referral_reward', refUser.language, { days: String(config.referralBonusDays) }),
-          )
-          .catch(() => {});
-      }
-    }
     return;
   }
 
@@ -505,45 +478,11 @@ async function handleCommand(
 
   switch (command) {
     case '/start': {
-      // Реферальная ссылка: /start ref_<id>. Привязываем пригласившего и,
-      // если это новый юзер, дарим пробный Pro (активация + рост).
-      const refMatch = arg?.match(/^ref_(\d+)$/);
-      if (refMatch && billingEnabled()) {
-        const refId = Number(refMatch[1]);
-        const me = usersRepo.get(userId);
-        const isNew = me && !me.referred_by && !me.trial_granted && refId !== userId;
-        if (isNew) {
-          usersRepo.setReferredBy(userId, refId);
-          grantProDays(userId, config.referralTrialDays, 'referral_trial', String(refId));
-          usersRepo.markTrialGranted(userId);
-          await bot.sendMessage(chatId, t('referral_welcome', lang, { days: String(config.referralTrialDays) }));
-        }
-      }
       const showConnect = isComposioConfigured() && availableApps().length > 0;
       await bot.sendMessage(
         chatId,
         t('welcome', lang),
         showConnect ? { reply_markup: connectKeyboard() } : undefined,
-      );
-      return;
-    }
-
-    case '/invite':
-    case '/ref': {
-      if (!billingEnabled()) {
-        await bot.sendMessage(chatId, t('billing_off', lang));
-        return;
-      }
-      const link = botUsername ? `https://t.me/${botUsername}?start=ref_${userId}` : '';
-      const count = usersRepo.countReferrals(userId);
-      await bot.sendMessage(
-        chatId,
-        t('invite_text', lang, {
-          link: link || '—',
-          count: String(count),
-          bonus: String(config.referralBonusDays),
-          trial: String(config.referralTrialDays),
-        }),
       );
       return;
     }
@@ -740,10 +679,10 @@ async function handleCommand(
         '',
         '— Деньги —',
         `💳 Платных подписок: ${paid} (звёзды ${byProv('stars')} · карта ${byProv('lemonsqueezy')})`,
-        `🎓 Админ/триал: ${byProv('admin')} / ${byProv('referral_trial')}`,
+        `🎓 Админ-доступов: ${byProv('admin')}`,
         `📉 ~MRR: ${mrr} ⭐/мес`,
         '',
-        `🎁 По рефералке: ${statsRepo.referredUsers()} · ⏰ Отложенных: ${statsRepo.pendingScheduled()}`,
+        `⏰ Отложенных отправок: ${statsRepo.pendingScheduled()}`,
         '',
         'Что используют — /usage ' + config.adminPassword,
       ].join('\n');
